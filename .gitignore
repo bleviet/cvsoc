@@ -1,0 +1,14 @@
+**/db
+**/*.rpt
+**/*.summary
+**/*.qsf
+**/*.qpf
+**/*.qws
+**/*.done
+**/*.smsg
+**/*.jdi
+**/*.pin
+**/*.sld
+**/*.sof
+
+
