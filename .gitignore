@@ -1,4 +1,5 @@
 **/db
+**/incremental_db
 **/*.rpt
 **/*.summary
 **/*.qsf
@@ -10,5 +11,6 @@
 **/*.pin
 **/*.sld
 **/*.sof
+**/*_dump.txt
 
 
