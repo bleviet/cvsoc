@@ -1,6 +1,6 @@
 all: project compile
 
-PROJECT_NAME = de10_nano
+PROJECT_NAME = 00_led_blinking
 REVISION_NAME = de10_nano
 
 project:
@@ -19,7 +19,7 @@ sta:
 	quartus_sta $(PROJECT_NAME) -c $(REVISION_NAME)
 
 compile:
-	quartus_sh --flow compile $(PROJECT_NAME)
+	quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME)
 
 
 FILE_ENDINGS_FOR_REMOVAL = .rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt
