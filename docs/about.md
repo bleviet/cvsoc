@@ -2,6 +2,10 @@
 * Prerequisites
   * Already some experience with FPGA development in VHDL
   * Eager to learn 
+* First you will learn how to setup your development environment
+  * Native On Windows
+  * Native On Linux
+  * Or you can grab our provided Docker image on dockerhub and immediately start exploring. Our docker image provide everything required to follow the tutorial series.
 * Basic idea is simple: Controlling the LED on various ways
   * VHDL Only
   * Bare Metal configuration via Avalon Memory Mapped Slave interface with Nios II CPU.

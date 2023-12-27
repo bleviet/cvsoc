@@ -18,7 +18,7 @@ The project is structured as follows:
 - `sim/`: Contains simulation files for the project.
 
 ## How to Build
-To build this project, navigate to the `quartus/` directory and run the following command in your terminal:
+To build this project, navigate to the `quartus/` directory and run the following command in your `Nios2 Command Shell` on Windows:
 
 ```sh
 make all
