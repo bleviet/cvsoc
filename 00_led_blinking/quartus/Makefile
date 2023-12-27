@@ -3,7 +3,7 @@
 # performing static timing analysis, and compiling the project.
 # Additionally, it includes a target for cleaning up generated files.
 
-all: project compile
+all: project compile check_timing
 
 PROJECT_NAME = 00_led_blinking
 REVISION_NAME = de10_nano
@@ -31,6 +31,10 @@ sta:
 # Target for compiling the project
 compile:
 	quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME)
+
+# Target for check timing slacks
+check_timing:
+	python ../scripts/check_timing_slacks.py $(REVISION_NAME).sta.rpt
 
 # List of file endings to be removed during the clean target
 FILE_ENDINGS_FOR_REMOVAL = .rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt
