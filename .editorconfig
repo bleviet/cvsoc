@@ -1,4 +1,8 @@
 # top-most EditorConfig file
+
+# This is the top-most EditorConfig file that applies to the entire project.
+# It ensures consistent coding style and formatting across different file types.
+
 root = true
 
 # Unix-style newlines with a newline ending every file
@@ -6,10 +10,12 @@ root = true
 end_of_line = lf
 insert_final_newline = true
 
+# Set the encoding and indentation style for VHDL, Verilog, and SystemVerilog files
 [*.{vhd, vhdl, v, sv}]
 charset = utf-8
 indent_style = space
 indent_size = 2
 
+# Set the indentation style for Makefile
 [Makefile]
 indent_style = tab
