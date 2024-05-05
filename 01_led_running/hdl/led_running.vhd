@@ -22,7 +22,7 @@ architecture rtl of led_running is
 begin
 
   led_o <= led_running;
-  
+
   --------------------------------------------------------------------------------
   -- LED TOGGLING PROCESS
   --------------------------------------------------------------------------------
@@ -34,11 +34,11 @@ begin
       else
         if counter = C_COUNTER_MAX - 1 then
           counter <= 0;
-          
+
           led_running <= std_logic_vector(unsigned(led_running) sll 1);
           if led_running = x"00" then
             led_running <= x"01";
-          end if;   
+          end if;
         else
           counter <= counter + 1;
         end if;
@@ -46,5 +46,5 @@ begin
       end if;
     end if;
   end process led_running_proc;
-  
+
 end architecture rtl;

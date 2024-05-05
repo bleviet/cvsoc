@@ -9,6 +9,7 @@ root = true
 [*]
 end_of_line = lf
 insert_final_newline = true
+trim_trailing_whitespace = true
 
 # Set the encoding and indentation style for VHDL, Verilog, and SystemVerilog files
 [*.{vhd, vhdl, v, sv}]

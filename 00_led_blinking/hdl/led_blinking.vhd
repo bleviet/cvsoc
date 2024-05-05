@@ -22,7 +22,7 @@ architecture rtl of led_blinking is
 begin
 
   led_o <= led_toggle;
-  
+
   --------------------------------------------------------------------------------
   -- LED TOGGLING PROCESS
   --------------------------------------------------------------------------------
@@ -41,5 +41,5 @@ begin
       end if;
     end if;
   end process led_toggle_proc;
-  
+
 end architecture rtl;

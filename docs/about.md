@@ -1,7 +1,7 @@
 # Tutorial series for stepping into advanced FPGA development
 * Prerequisites
   * Already some experience with FPGA development in VHDL
-  * Eager to learn 
+  * Eager to learn
 * First you will learn how to setup your development environment
   * Native On Windows
   * Native On Linux
