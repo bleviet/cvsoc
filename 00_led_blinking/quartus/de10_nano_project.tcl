@@ -12,7 +12,7 @@ set_global_assignment -name SDC_FILE de10_nano.sdc
 # Add the files to the project
 set_global_assignment -name TOP_LEVEL_ENTITY de10_nano_top
 
-set_global_assignment -name VHDL_FILE ../../../common/ip/power_on_reset/power_on_reset_generator.vhd
+set_global_assignment -name VHDL_FILE ../../common/ip/power_on_reset/power_on_reset_generator.vhd
 set_global_assignment -name VHDL_FILE ../hdl/led_blinking.vhd
 set_global_assignment -name VHDL_FILE ../hdl/de10_nano_top.vhd
 
