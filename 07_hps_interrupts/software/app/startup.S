@@ -80,11 +80,12 @@ _start:
  *   r12     (intra-procedure scratch register, ip)
  *   lr      (LR_irq, adjusted by -4 = interrupted PC; becomes return addr)
  *
- * The ^ on pop {…, pc}^ loads SPSR_irq into CPSR, restoring the mode
+ * The ^ on ldmfd {…, pc}^ loads SPSR_irq into CPSR, restoring the mode
  * and interrupt flags of the interrupted code (SVC mode, IRQs enabled).
+ * GNU as rejects pop^; use ldmfd (full-descending LDM) instead.
  * ------------------------------------------------------------------ */
 irq_entry:
     sub     lr, lr, #4              /* Adjust: LR_irq → address of interrupted instr */
-    push    {r0-r3, r12, lr}        /* Save scratch regs + return address on IRQ stack */
+    stmfd   sp!, {r0-r3, r12, lr}   /* Save scratch regs + return address on IRQ stack */
     bl      irq_c_handler           /* Call C ISR dispatcher */
-    pop     {r0-r3, r12, pc}^       /* Restore regs, CPSR ← SPSR_irq, return */
+    ldmfd   sp!, {r0-r3, r12, pc}^  /* Restore regs, CPSR ← SPSR_irq, return */

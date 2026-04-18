@@ -38,7 +38,7 @@ all: qsys project compile app
 setup:
 	@echo "Installing ARM cross-compiler (arm-linux-gnueabihf-gcc)…"
 	echo "deb http://snapshot.debian.org/archive/debian/20220622T000000Z stretch main" \
-	     > /etc/apt/sources.list.d/snapshot.list
+	     > /etc/apt/sources.list
 	apt-get update -o Acquire::Check-Valid-Until=false -qq
 	apt-get install -y -o Acquire::Check-Valid-Until=false \
 	     gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf

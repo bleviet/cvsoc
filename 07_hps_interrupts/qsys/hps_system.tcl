@@ -88,6 +88,9 @@ set_instance_parameter_value hps_0 LWH2F_Enable          {true}
 set_instance_parameter_value hps_0 F2S_Width             {0}
 set_instance_parameter_value hps_0 S2F_Width             {0}
 
+# Enable FPGA-to-HPS interrupt lines (exposes f2h_irq0 and f2h_irq1 interfaces)
+set_instance_parameter_value hps_0 F2SINTERRUPT_Enable   {1}
+
 # ── FPGA fabric clock (50 MHz from FPGA_CLK1_50 top-level port) ──────────
 add_instance clk_0 clock_source
 set_instance_parameter_value clk_0 clockFrequency      {50000000}
@@ -139,10 +142,11 @@ set_connection_parameter_value hps_0.h2f_lw_axi_master/led_pio.s1    baseAddress
 set_connection_parameter_value hps_0.h2f_lw_axi_master/button_pio.s1 baseAddress {0x00001000}
 
 # ── FPGA-to-HPS interrupt connection ──────────────────────────────────────
-# button_pio IRQ → hps_0.f2h_irq0 (irqNumber 0)
-# In the GIC: F2H_IRQ[0] → SPI[40] → GIC interrupt ID 72
-add_connection button_pio.irq hps_0.f2h_irq0
-set_connection_parameter_value button_pio.irq/hps_0.f2h_irq0 irqNumber {0}
+# hps_0.f2h_irq0 is a START (32-bit collector bus); button_pio.irq is an END
+# that drives onto bit irqNumber of that bus.
+# button_pio → f2h_irq0[0] → GIC SPI[40] → GIC interrupt ID 72
+add_connection hps_0.f2h_irq0 button_pio.irq
+set_connection_parameter_value hps_0.f2h_irq0/button_pio.irq irqNumber {0}
 
 # ── Interface exports ──────────────────────────────────────────────────────
 # FPGA fabric clock input (50 MHz from board oscillator)
