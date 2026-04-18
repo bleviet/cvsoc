@@ -9,18 +9,34 @@
  *   H2F Lightweight bridge base : 0xFF200000  (2 MB window)
  *   LED PIO DATA register       : 0xFF200000 + 0x0000 = 0xFF200000
  *
- * Bridge initialisation:
- *   The Reset Manager (RSTMGR) holds all three AXI bridges in reset after
- *   a cold start.  All three must be released simultaneously — the FPGA
- *   interconnect fabric requires every bridge reset to be de-asserted before
- *   any bridge becomes responsive.
- *   (The SYSMGR FPGAINTF registers control debug/trace/JTAG signals between
- *   the FPGA and HPS, not the AXI bridges, and are not needed here.)
+ * Bridge initialisation requires TWO steps:
+ *   1. L3 (NIC-301) REMAP — set bit 4 to make the LW H2F bridge address
+ *      space visible at 0xFF200000.  Without this, any access to the bridge
+ *      generates an AXI DECERR (data abort on the CPU).
+ *   2. RSTMGR BRGMODRST — assert then release bridge resets to pulse
+ *      h2f_rst_n into the FPGA fabric, ensuring the Qsys interconnect and
+ *      peripherals come out of reset cleanly after JTAG FPGA programming.
  */
 
 #include <stdint.h>
 
 /* ── Register addresses (Cyclone V SoC HPS TRM) ─────────────────────────── */
+
+/* Watchdog Timers (Synopsys DW APB Watchdog) — must be disabled before they
+ * expire and reset the HPS.  U-Boot SPL enables WDT0 with a short timeout;
+ * since the enable bit on Cyclone V is NOT write-once, clearing CR[0] works. */
+#define WDT0_BASE               0xFFD02000UL
+#define WDT1_BASE               0xFFD03000UL
+#define WDT_TORR(base)          (*(volatile uint32_t *)((base) + 0x04UL))
+#define WDT_CRR(base)           (*(volatile uint32_t *)((base) + 0x0CUL))
+#define WDT_KICK_VALUE          0x76u
+
+/* Cortex-A9 MPCore private watchdog (ARM DDI 0407, section 4.4).
+ * PERIPHBASE on Cyclone V = 0xFFFEC000 (hardwired). */
+#define MPCORE_WDT_BASE         0xFFFEC620UL
+#define MPCORE_WDT_LOAD         (*(volatile uint32_t *)(MPCORE_WDT_BASE + 0x00UL))
+#define MPCORE_WDT_CTRL         (*(volatile uint32_t *)(MPCORE_WDT_BASE + 0x08UL))
+#define MPCORE_WDT_DISABLE      (*(volatile uint32_t *)(MPCORE_WDT_BASE + 0x14UL))
 
 /* Reset Manager — bridge module reset register */
 #define RSTMGR_BASE             0xFFD05000UL
@@ -29,6 +45,15 @@
 #define BRGMODRST_LWHPS2FPGA    (1u << 1)   /* Lightweight HPS-to-FPGA bridge */
 #define BRGMODRST_FPGA2HPS      (1u << 2)   /* FPGA-to-HPS bridge */
 #define BRGMODRST_ALL           (BRGMODRST_HPS2FPGA | BRGMODRST_LWHPS2FPGA | BRGMODRST_FPGA2HPS)
+
+/* L3 (NIC-301) interconnect — remap register.
+ * Controls address-space visibility of the HPS-to-FPGA bridges.
+ * After cold reset all bridges are invisible; the preloader normally sets
+ * this up, but after JTAG FPGA programming the mapping can be lost. */
+#define L3_REMAP                (*(volatile uint32_t *)0xFF800000UL)
+#define L3_REMAP_OCRAM          (1u << 0)   /* OCRAM at 0x00000000 */
+#define L3_REMAP_HPS2FPGA       (1u << 3)   /* H2F bridge at 0xC0000000 */
+#define L3_REMAP_LWHPS2FPGA     (1u << 4)   /* LW H2F bridge at 0xFF200000 */
 
 /* Lightweight HPS-to-FPGA bridge */
 #define H2F_LW_BASE             0xFF200000UL
@@ -41,37 +66,84 @@
 static void delay(volatile uint32_t count);
 
 /*
- * hps_bridge_init — toggle all AXI bridges through a full reset cycle.
+ * wdt_init — neutralise all watchdog timers on the Cyclone V SoC.
  *
- * U-Boot SPL releases the bridges early in boot (BRGMODRST = 0), so a plain
- * clear is a no-op.  After JTAG FPGA programming the FPGA fabric's
- * h2f_rst_n-driven reset synchroniser may still be latched.  The only
- * reliable way to de-assert it is to explicitly assert all bridge resets
- * (which drives h2f_rst_n LOW into the FPGA fabric) and then release them.
- * This must be done from the CPU in secure-supervisor mode — MEM-AP writes
- * to RSTMGR are silently discarded (non-secure bus → secured register).
+ * On Cyclone V the DW APB Watchdogs have WDT_ALWAYS_EN=1 — the enable bit in
+ * WDT_CR is READ-ONLY and permanently set to 1.  These watchdogs CANNOT be
+ * disabled; the only way to prevent a warm reset is to:
+ *   1. Set the maximum timeout period (TORR = 0xF)
+ *   2. Periodically "kick" the counter (write 0x76 to CRR)
+ *
+ * The Cortex-A9 MPCore private watchdog CAN be disabled via a magic sequence.
+ *
+ * After calling wdt_init(), the caller must periodically call wdt_kick()
+ * before the L4 watchdog timeout expires (~30 s at max TORR with osc1 clock).
  */
-static void hps_bridge_init(void)
+static void wdt_init(void)
 {
-    /* Assert all bridges — this drives h2f_rst_n LOW into the FPGA fabric. */
-    RSTMGR_BRGMODRST |= BRGMODRST_ALL;
-    delay(200000UL);    /* ~2 ms at ~100 MHz: let reset propagate */
+    /* ── L4 Watchdog 0: max timeout + kick ── */
+    WDT_TORR(WDT0_BASE) = 0xFFu;            /* TOP=0xF, TOP_INIT=0xF (max) */
+    WDT_CRR(WDT0_BASE)  = WDT_KICK_VALUE;  /* restart counter */
 
-    /* Release all bridges simultaneously — drives h2f_rst_n HIGH again.
-     * The FPGA altera_reset_controller de-asserts reset after 2 clock edges
-     * (SYNC_DEPTH = 2 at 50 MHz ≈ 40 ns) so any delay after this is enough. */
-    RSTMGR_BRGMODRST &= ~BRGMODRST_ALL;
-    delay(200000UL);    /* ~2 ms: let Avalon interconnect come out of reset */
+    /* ── L4 Watchdog 1: max timeout + kick ── */
+    WDT_TORR(WDT1_BASE) = 0xFFu;
+    WDT_CRR(WDT1_BASE)  = WDT_KICK_VALUE;
+
+    /* ── Cortex-A9 MPCore Private Watchdog ──
+     * Magic sequence switches from watchdog mode to timer mode (no reset).
+     * Then clear control register to stop it entirely. */
+    MPCORE_WDT_DISABLE = 0x12345678u;
+    MPCORE_WDT_DISABLE = 0x87654321u;
+    MPCORE_WDT_CTRL    = 0;
+}
+
+/* Kick both L4 watchdogs — must be called at least once per timeout period. */
+static inline void wdt_kick(void)
+{
+    WDT_CRR(WDT0_BASE) = WDT_KICK_VALUE;
+    WDT_CRR(WDT1_BASE) = WDT_KICK_VALUE;
 }
 
 /*
- * delay — busy-loop delay.
+ * hps_bridge_init — enable and reset the Lightweight HPS-to-FPGA bridge.
  *
- * Runs at roughly 50–100 MHz on the Cortex-A9; 2 000 000 iterations gives
- * approximately 20–40 ms — long enough for the LED pattern to be visible.
+ * Two things must happen for bridge access to work:
+ *
+ * 1. L3 REMAP — set bit 4 so the LW bridge address window (0xFF200000)
+ *    is visible in the CPU address map.  Without this, the L3 interconnect
+ *    returns DECERR for any access in that range.
+ *
+ * 2. BRGMODRST toggle — assert then release bridge resets.  This pulses
+ *    h2f_rst_n LOW→HIGH into the FPGA fabric, ensuring the Qsys reset
+ *    synchroniser properly de-asserts and all Avalon slaves come out of
+ *    reset after JTAG FPGA programming.
+ */
+static void hps_bridge_init(void)
+{
+    /* Enable LW H2F bridge address visibility in L3 interconnect */
+    L3_REMAP = L3_REMAP_LWHPS2FPGA | L3_REMAP_OCRAM;
+
+    /* Assert all bridges — drives h2f_rst_n LOW into the FPGA fabric */
+    RSTMGR_BRGMODRST |= BRGMODRST_ALL;
+    delay(200000UL);
+
+    /* Release all bridges — drives h2f_rst_n HIGH; Qsys interconnect and
+     * PIO come out of reset after ~2 clock edges at 50 MHz (≈ 40 ns). */
+    RSTMGR_BRGMODRST &= ~BRGMODRST_ALL;
+    delay(200000UL);
+}
+
+/*
+ * delay — busy-loop delay with watchdog kick.
+ *
+ * Kicks the L4 watchdogs at entry to prevent timeout during long delays.
+ * Each call at count=2000000 takes ~100–200 ms on the Cortex-A9 at 100 MHz.
  */
 static void delay(volatile uint32_t count)
 {
+    /* Kick watchdogs at entry — prevents timeout during long waits */
+    WDT_CRR(WDT0_BASE) = WDT_KICK_VALUE;
+    WDT_CRR(WDT1_BASE) = WDT_KICK_VALUE;
     while (count--)
         ;
 }
@@ -95,9 +167,11 @@ void main(void)
     uint32_t idx = 0;
     const uint32_t num_patterns = sizeof(patterns) / sizeof(patterns[0]);
 
+    wdt_init();
     hps_bridge_init();
 
     while (1) {
+        wdt_kick();
         LED_PIO_DATA = patterns[idx];
         idx++;
         if (idx >= num_patterns)
