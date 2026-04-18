@@ -83,7 +83,7 @@ usb-windows:
 # usb-wsl: Attaches the USB-Blaster to WSL2 so Docker can reach it.
 usb-wsl:
 	@echo "Attaching USB-Blaster (busid $(USBIPD_BUSID)) to WSL2..."
-	$(USBIPD) attach --wsl --busid $(USBIPD_BUSID)
+	$(USBIPD) attach --wsl --busid $(USBIPD_BUSID) 2>/dev/null || true
 	@sleep 1
 
 # program-sof: Detaches USB-Blaster from WSL2, programs the FPGA via Windows
