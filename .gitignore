@@ -13,4 +13,14 @@
 **/*.sof
 **/*_dump.txt
 
+# Qsys / Platform Designer
+.qsys_edit/
+**/.qsys_edit/
+*.sopcinfo
+**/*.sopcinfo
 
+# Generated HPS/DDR3 files
+*_all_pins.txt
+*_summary.csv
+**/hps_sdram_p0_all_pins.txt
+**/hps_sdram_p0_summary.csv
