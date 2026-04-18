@@ -40,11 +40,13 @@ The table below maps each phase to its key CLI tools. No GUI is required at any 
 | 3 HPS preloader | `bsp-create-settings --type spl ...` + `make` | Generates and builds U-Boot SPL |
 | 3 ARM cross-compile | `arm-linux-gnueabihf-gcc` via `Makefile` | Builds bare-metal ARM application |
 | 3 HPS programming | `quartus_hps -c 1 -o GDBSERVER` | Programs HPS via JTAG |
-| 4 Linux build | `make de10_nano_defconfig && make` (Buildroot) | Full OS image: kernel, rootfs, U-Boot |
-| 4 Device tree | `dtc -I dts -O dtb overlay.dts -o overlay.dtbo` | Compiles device tree overlay |
-| 4 FPGA bitstream load | `cp design.rbf /lib/firmware/ && echo 1 > /sys/class/fpga_manager/...` | Loads bitstream from Linux |
-| 5 UDP server | `make -C software/server/` | Builds Linux UDP server application |
-| 5 PC client | `python send_led_pattern.py --host <ip> --pattern 0xA5` | Sends commands from PC |
+| 5 Nios II GDB | `nios2-gdb-server --tcpport 2345` | Remote GDB bridge for Nios II |
+| 5 ARM GDB | `arm-linux-gnueabihf-gdb` via `OpenOCD` | Remote GDB for ARM Cortex-A9 |
+| 6 Linux build | `make de10_nano_defconfig && make` (Buildroot) | Full OS image: kernel, rootfs, U-Boot |
+| 6 Device tree | `dtc -I dts -O dtb overlay.dts -o overlay.dtbo` | Compiles device tree overlay |
+| 6 FPGA bitstream load | `cp design.rbf /lib/firmware/ && echo 1 > /sys/class/fpga_manager/...` | Loads bitstream from Linux |
+| 7 UDP server | `make -C software/server/` | Builds Linux UDP server application |
+| 7 PC client | `python send_led_pattern.py --host <ip> --pattern 0xA5` | Sends commands from PC |
 
 > **One unavoidable manual step:** writing the SD card image to physical media  
 > (`dd if=sdcard.img of=/dev/sdX bs=4M status=progress`) requires a human to  
@@ -195,11 +197,62 @@ The table below maps each phase to its key CLI tools. No GUI is required at any 
 
 ---
 
-## Phase 4 — Embedded Linux on HPS
+## Phase 4 — Hardware Interrupts (Nios II & HPS)
+
+**Goal:** Master the interrupt subsystems of both the Nios II and the ARM HPS. Students will trigger CPU actions using physical push buttons on the DE10-Nano.
+
+### 4.1 Qsys Evolution: Adding Button PIO
+- Update both Nios II and HPS Qsys systems to include a 2-bit PIO component for the push buttons (`KEY[0]` and `KEY[1]`).
+- Enable "Interrupt" mode in the PIO component:
+  - Generate IRQ on edge (falling edge for active-low buttons).
+  - Connect the IRQ line to the CPU (Nios II Internal Interrupt Controller or HPS GIC).
+- Pin assignments (defined in TCL):
+  - `KEY[0]`: `PIN_AH17` (3.3-V LVTTL)
+  - `KEY[1]`: `PIN_AH16` (3.3-V LVTTL)
+
+### 4.2 Nios II Interrupt Handling
+- `06_nios2_interrupts` — C application using the HAL (Hardware Abstraction Layer) interrupt API.
+- Implement a Register-Based ISR:
+  - Button press toggles a software state or increments a counter.
+  - Main loop displays the state on the LEDs.
+- Teaches: `alt_ic_isr_register()`, interrupt context vs. main context, volatile variables.
+
+### 4.3 ARM HPS Interrupt Handling (GIC)
+- `07_hps_interrupts` — Bare-metal ARM application.
+- Configure the Generic Interrupt Controller (GIC):
+  - Map the FPGA-to-HPS interrupt line (e.g., IRQ 72).
+  - Setup the Vector Table and Exception Handlers in `startup.S`.
+- Teaches: GIC distributor and CPU interface configuration, ARM exception modes (IRQ/SVC), stack initialization.
+
+### 4.4 Documentation
+- `06_nios2_interrupts/doc/README.md` and `07_hps_interrupts/doc/README.md`: Interrupt latency, race conditions, and debouncing strategies.
+
+---
+
+## Phase 5 — Software Debugging (GDB)
+
+**Goal:** Master remote debugging techniques using GDB for both the Nios II soft-processor and the ARM HPS.
+
+### 5.1 Nios II Debugging with nios2-gdb-server
+- Use `nios2-gdb-server` to create a JTAG-to-GDB bridge.
+- Connect from `nios2-elf-gdb` (or generic `gdb`) to perform source-level debugging.
+- Teaches: setting hardware breakpoints, inspecting Avalon peripheral registers via memory-mapped I/O, backtracing from exception handlers.
+
+### 5.2 ARM HPS Debugging with OpenOCD
+- Use Intel's OpenOCD (via `aji_client`) as a GDB server for the ARM Cortex-A9.
+- Connect from `arm-linux-gnueabihf-gdb` to debug bare-metal applications.
+- Teaches: debugging the `startup.S` boot sequence, inspecting GIC (Generic Interrupt Controller) registers, using watchpoints to catch data corruption.
+
+### 5.3 Documentation
+- `04_nios2_led/doc/debugging.md` and `05_hps_led/doc/debugging.md`: Step-by-step GDB workflows, common GDB commands for embedded systems.
+
+---
+
+## Phase 6 — Embedded Linux on HPS
 
 **Goal:** Boot Linux on the ARM HPS and control FPGA LEDs from a proper Linux device driver and user-space application.
 
-### 4.1 Linux Build Environment
+### 6.1 Linux Build Environment
 - Build system: **Buildroot** — entirely Makefile-driven, no GUI required
   ```sh
   make BR2_EXTERNAL=../br2-external de10_nano_defconfig
@@ -208,8 +261,8 @@ The table below maps each phase to its key CLI tools. No GUI is required at any 
 - All kernel config, U-Boot config, and package selection managed via `defconfig` files stored in the repo
 - SD card image written via `dd` (the one manual hardware step in the entire series)
 
-### 4.2 Device Tree Overlay
-- Device tree overlay source (`.dts`) stored in the repo under `06_linux_led/dts/`
+### 6.2 Device Tree Overlay
+- Device tree overlay source (`.dts`) stored in the repo under `08_linux_led/dts/`
 - Compiled via:
   ```sh
   dtc -I dts -O dtb -o fpga_led.dtbo fpga_led.dts
@@ -221,46 +274,46 @@ The table below maps each phase to its key CLI tools. No GUI is required at any 
   echo design.rbf > /sys/class/fpga_manager/fpga0/firmware
   ```
 
-### 4.3 Linux Kernel Driver
-- `06_linux_led` — UIO (Userspace I/O) driver approach (simpler) as first step
+### 6.3 Linux Kernel Driver
+- `08_linux_led` — UIO (Userspace I/O) driver approach (simpler) as first step
 - Optionally: full `platform_driver` in-kernel module as advanced variant
 - Sysfs interface for LED pattern control: `echo 0xAA > /sys/class/leds/fpga_led/pattern`
 
-### 4.4 User-Space Application
+### 6.4 User-Space Application
 - C application using `/dev/uioX` or sysfs to animate LEDs
 - Python script alternative using mmap for direct register access
 - Demonstrate the full software stack from user space to FPGA fabric
 
-### 4.5 Documentation
-- `06_linux_led/doc/README.md`: Linux boot sequence on DE10-Nano, device tree, driver model overview
+### 6.5 Documentation
+- `08_linux_led/doc/README.md`: Linux boot sequence on DE10-Nano, device tree, driver model overview
 
 ---
 
-## Phase 5 — Ethernet Control
+## Phase 7 — Ethernet Control
 
 **Goal:** Control the FPGA LEDs from a PC over the network. Demonstrates the complete hardware+software stack.
 
-### 5.1 Network Stack Choice
+### 7.1 Network Stack Choice
 Two sub-tracks (implement one or both):
 - **Track A: HPS Ethernet** — Use the on-chip HPS Gigabit Ethernet MAC with Linux networking stack. Simplest approach, highest-level abstraction.
 - **Track B: FPGA Soft MAC** — Implement a lightweight UDP listener in the FPGA fabric (using an open-source Ethernet IP core). Lower-level, teaches network protocols in HDL.
 
-### 5.2 Track A — HPS Ethernet Server
-- `07_ethernet_hps_led` — Linux application acting as UDP server
+### 7.2 Track A — HPS Ethernet Server
+- `09_ethernet_hps_led` — Linux application acting as UDP server
   - Receives LED pattern commands as UDP packets
   - Forwards commands to FPGA LED controller via sysfs/UIO
 - PC-side Python client script: `send_led_pattern.py --host <ip> --pattern 0xA5`
 - Document DE10-Nano Ethernet port configuration and static IP setup
 
-### 5.3 Track B — FPGA UDP Receiver (Advanced)
-- `07_ethernet_fpga_led` — Pure FPGA Ethernet implementation
+### 7.3 Track B — FPGA UDP Receiver (Advanced)
+- `09_ethernet_fpga_led` — Pure FPGA Ethernet implementation
   - Integrate open-source Ethernet MAC (e.g., LiteEth or Tri-Speed Ethernet IP)
   - Implement minimal UDP/IP stack in VHDL
   - Parse incoming UDP packets to extract LED commands
   - Drive LED controller directly from FPGA logic
 - Full simulation of UDP packet reception using cocotb
 
-### 5.4 Documentation
+### 7.4 Documentation
 - Protocol specification: packet format, port numbers, command encoding
 - Network setup guide and PC-side tool usage
 
@@ -276,7 +329,7 @@ These improvements are not tied to a single phase and should progress in paralle
 | Phase 0          | All existing IPs have testbenches |
 | Phase 1          | All new IPs have testbenches |
 | Phase 2+         | Avalon MM Slave compliance tests |
-| Phase 4+         | Co-simulation (cocotb + Python) for HPS interfaces |
+| Phase 7+         | Co-simulation (cocotb + Python) for HPS interfaces |
 
 ### CI/CD Evolution
 | Milestone | CI/CD Addition |
@@ -284,7 +337,7 @@ These improvements are not tied to a single phase and should progress in paralle
 | Phase 0   | GHDL simulation on every PR |
 | Phase 2   | Nios II BSP compilation check |
 | Phase 3+  | ARM cross-compilation check |
-| Phase 4+  | Buildroot/Yocto build verification |
+| Phase 7+  | Buildroot/Yocto build verification |
 
 ### Documentation Standards
 - Every project directory must contain `doc/README.md` before being merged
@@ -301,9 +354,11 @@ These improvements are not tied to a single phase and should progress in paralle
 | `00–03`   | Pure VHDL / FPGA-only designs |
 | `04`      | Nios II soft CPU |
 | `05`      | ARM HPS bare metal |
-| `06`      | Embedded Linux |
-| `07`      | Ethernet / Networking |
-| `08+`     | Reserved for future extensions |
+| `06–07`   | Hardware Interrupts (Nios II & HPS) |
+| `08–09`   | Software Debugging (GDB) |
+| `10`      | Embedded Linux |
+| `11`      | Ethernet / Networking |
+| `12+`     | Reserved for future extensions |
 
 ---
 
@@ -314,8 +369,10 @@ Phase 0 (Infrastructure)
     └── Phase 1 (Extended VHDL)
             └── Phase 2 (Nios II)
                     └── Phase 3 (HPS Bare Metal)
-                            └── Phase 4 (Embedded Linux)
-                                    └── Phase 5 (Ethernet)
+                            └── Phase 4 (Interrupts)
+                                    └── Phase 5 (Debugging)
+                                            └── Phase 6 (Embedded Linux)
+                                                    └── Phase 7 (Ethernet)
 ```
 
 Each phase gate-checks:
