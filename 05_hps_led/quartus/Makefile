@@ -25,6 +25,12 @@ ARM_CC        ?= arm-linux-gnueabihf-gcc
 QUARTUS_PGM  ?= /mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe
 DOCKER_IMAGE ?= raetro/quartus:23.1
 
+# usbipd-win bus ID for the USB-Blaster II.
+# Find yours with: usbipd.exe list  (look for "USB-Blaster")
+# Override with: make USBIPD_BUSID=<id> program-sof
+USBIPD       ?= usbipd.exe
+USBIPD_BUSID ?= 2-4
+
 # HPS board connection for deploy-elf.
 # The ELF is a bare-metal app targeting HPS OCRAM (0xFFFF0000).
 # Load it via JTAG (DS-5 or OpenOCD+arm-none-eabi-gdb) or copy to SD card.
@@ -32,7 +38,7 @@ HPS_IP       ?= 192.168.1.100
 HPS_USER     ?= root
 
 .PHONY: all setup qsys patch-oct project compile app clean check_timing \
-        program-sof download-elf deploy-elf
+        program-sof download-elf deploy-elf usb-windows usb-wsl
 
 all: qsys project compile app
 
@@ -98,22 +104,34 @@ app:
 	$(MAKE) -C $(APP_DIR) CC=$(ARM_CC)
 
 # ── Programming & deploy targets ──────────────────────────────────────────────
-# program-sof: Programs the FPGA via JTAG using the Windows Quartus Programmer.
-#   Works from WSL2 without usbipd-win because quartus_pgm.exe runs on Windows.
+# usb-windows: Detaches the USB-Blaster from WSL2 so Windows can see it.
+usb-windows:
+	@echo "Detaching USB-Blaster (busid $(USBIPD_BUSID)) from WSL2 → Windows..."
+	$(USBIPD) detach --busid $(USBIPD_BUSID) 2>/dev/null || true
+	@sleep 1
+
+# usb-wsl: Attaches the USB-Blaster to WSL2 so Docker can reach it.
+usb-wsl:
+	@echo "Attaching USB-Blaster (busid $(USBIPD_BUSID)) to WSL2..."
+	$(USBIPD) attach --wsl --busid $(USBIPD_BUSID)
+	@sleep 1
+
+# program-sof: Detaches USB-Blaster from WSL2, programs the FPGA via Windows
+#   quartus_pgm.exe, then re-attaches so download-elf can follow immediately.
 #   The .sof is copied to C:\Windows\Temp first to avoid UNC-path issues.
 SOF_WIN_TMP := /mnt/c/Windows/Temp
-program-sof: $(REVISION_NAME).sof
-	cp $< $(SOF_WIN_TMP)/$(REVISION_NAME).sof
+program-sof: usb-windows $(REVISION_NAME).sof
+	cp $(REVISION_NAME).sof $(SOF_WIN_TMP)/$(REVISION_NAME).sof
 	$(QUARTUS_PGM) -m jtag -o "p;C:\Windows\Temp\$(REVISION_NAME).sof@2"
+	@$(MAKE) --no-print-directory usb-wsl
 
-# download-elf: Loads the bare-metal ELF into HPS OCRAM via JTAG (OpenOCD in Docker).
-#   Requires usbipd-win to attach USB-Blaster to WSL2 first (same as 04_nios2_led).
+# download-elf: Loads the bare-metal binary into HPS OCRAM via JTAG (OpenOCD in Docker).
 #   Runs OpenOCD inside the raetro/quartus container (--privileged for USB access).
 OPENOCD_CFG  = ../scripts/de10_nano_hps.cfg
 REPO_ROOT    = $(realpath ../..)
 UNAME_SHIM   = $(REPO_ROOT)/common/docker/uname_shim.sh
 
-download-elf: $(APP_DIR)/hps_led.elf
+download-elf: usb-wsl $(APP_DIR)/hps_led.elf
 	docker run --rm --privileged \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \

@@ -83,12 +83,7 @@ The USB-Blaster II is a physical USB device. Windows and WSL2 cannot share it si
 - When the cable is **not shared** via `usbipd-win`, Windows sees it → `quartus_pgm.exe` works, Docker cannot reach it.
 - When the cable is **attached** to WSL2 via `usbipd-win`, Docker with `--privileged` sees it → `nios2-download` and `openocd` work, Windows cannot see it.
 
-The workflow for every programming session is therefore:
-
-```
-program-sof  →  detach from WSL2  (Windows owns cable)
-download-elf →  attach to WSL2    (Docker owns cable)
-```
+The Makefiles handle this automatically. Each target calls `usbipd.exe detach` or `usbipd.exe attach --wsl` as needed before running its tool, so you can call `make program-sof` and `make download-elf` back-to-back without any manual cable management.
 
 ### Why nios2-download cannot run bare in Docker
 
@@ -154,24 +149,7 @@ The DE10-Nano exposes two devices on a single JTAG scan chain via the USB-Blaste
 
 ## Step 3 — Program the FPGA
 
-This step uses `quartus_pgm.exe` on the Windows side. The USB-Blaster must **not** be attached to WSL2.
-
-If you attached it previously, detach it first:
-
-```bash
-# Run this from WSL2
-usbipd.exe detach --busid 2-4
-```
-
-Verify Windows can see the cable again:
-
-```powershell
-# Run in Windows PowerShell
-quartus_pgm.exe --list
-# Expected: 1) USB-Blaster II [USB-1]
-```
-
-Now program the FPGA from the WSL2 shell:
+This step uses `quartus_pgm.exe` on the Windows side. The Makefile automatically detaches the USB-Blaster from WSL2 before programming and re-attaches it afterwards.
 
 ```bash
 # For Phase 2 (Nios II LED)
@@ -201,20 +179,9 @@ The FPGA is now configured. The `CONF_DONE` LED on the DE10-Nano should be lit.
 
 This step uses `nios2-download` inside Docker. The USB-Blaster must be **attached to WSL2**.
 
-### 4.1 Attach the USB-Blaster
+### 4.1 Download and start the ELF
 
-```bash
-usbipd.exe attach --wsl --busid 2-4
-```
-
-Verify Docker can see it:
-
-```bash
-lsusb | grep -i altera
-# Expected: Bus 001 Device 00X: ID 09fb:6010 Altera ...
-```
-
-### 4.2 Download and start the ELF
+The Makefile automatically attaches the USB-Blaster to WSL2 before running `nios2-download`.
 
 ```bash
 make download-elf -C 04_nios2_led/quartus
@@ -234,7 +201,7 @@ Starting processor at address 0x00000020
 
 The Nios II CPU is now executing the LED firmware. You should see an 8-bit counter sweeping across `LED[7:0]` on the board.
 
-### 4.3 (Optional) Open the JTAG terminal
+### 4.2 (Optional) Open the JTAG terminal
 
 The design includes a JTAG UART peripheral. Connect to it to receive any `printf` output from the firmware:
 
@@ -251,13 +218,9 @@ This step uses Intel's OpenOCD (inside Docker) with the `aji_client` interface.
 
 > **Note:** The FPGA must already be programmed (Step 3) before loading the HPS application. The HPS firmware drives LEDs through the Lightweight HPS-to-FPGA bridge — the LED PIO peripheral lives in the FPGA fabric, so the bitstream must be present.
 
-### 5.1 Attach the USB-Blaster (if not already done)
+### 5.1 Load the binary into OCRAM and start execution
 
-```bash
-usbipd.exe attach --wsl --busid 2-4
-```
-
-### 5.2 Load the binary into OCRAM and start execution
+The Makefile automatically ensures the USB-Blaster is attached to WSL2.
 
 ```bash
 make download-elf -C 05_hps_led/quartus
@@ -294,24 +257,26 @@ The ARM Cortex-A9 is now executing the LED firmware from OCRAM. You should see t
 │                                                                   │
 │  1. Build   →  make compile / make app (inside Docker)           │
 │                                                                   │
-│  2. Program FPGA:                                                 │
-│     a. usbipd.exe detach --busid 2-4   (Windows takes cable)     │
-│     b. make program-sof                (quartus_pgm.exe)         │
-│                                                                   │
-│  3. Load application:                                             │
-│     a. usbipd.exe attach --wsl --busid 2-4  (Docker takes cable) │
-│     b. make download-elf               (nios2-download / openocd) │
+│  2. Program FPGA + load app (fully automatic):                    │
+│     make program-sof    ← detaches cable, programs, re-attaches  │
+│     make download-elf   ← attaches cable, loads ELF/BIN, runs    │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 Quick-reference table:
 
-| Target | Cable owner | Command |
+| Target | Cable managed automatically | What it does |
 |---|---|---|
-| `program-sof` | Windows | `usbipd.exe detach --busid 2-4` first |
-| `download-elf` (Nios II) | WSL2 / Docker | `usbipd.exe attach --wsl --busid 2-4` first |
-| `download-elf` (HPS) | WSL2 / Docker | `usbipd.exe attach --wsl --busid 2-4` first |
-| `terminal` (Nios II) | WSL2 / Docker | USB-Blaster already attached |
+| `program-sof` | detach → Windows → re-attach to WSL2 | Programs FPGA via `quartus_pgm.exe` |
+| `download-elf` (Nios II) | attach to WSL2 | Loads ELF via `nios2-download` in Docker |
+| `download-elf` (HPS) | attach to WSL2 | Loads binary via OpenOCD in Docker |
+| `terminal` (Nios II) | attach to WSL2 | Opens JTAG UART console |
+
+Override the bus ID if yours differs from `2-4`:
+
+```bash
+make program-sof USBIPD_BUSID=3-1 -C 04_nios2_led/quartus
+```
 
 ---
 
