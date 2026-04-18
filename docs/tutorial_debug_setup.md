@@ -374,20 +374,37 @@ This is expected. The `.sof` file programs the FPGA's volatile SRAM-based config
 
 ### HPS LED application loads but LEDs stay off (data abort on `0xFF200000`)
 
-**Symptom:** The binary loads cleanly, execution starts at `0xFFFF0000`, but the LEDs do not light up. If you halt the CPU with OpenOCD, you may see the PC stuck in an exception handler or a data abort in the prefetch/data abort vector.
+**Symptom:** The binary loads cleanly, execution starts at `0xFFFF0000`, but the LEDs do not light up. If you halt the CPU with OpenOCD, you may see the PC stuck in an exception handler or a data abort in the prefetch/data abort vector. DFSR reads `0x08` (Synchronous External Abort).
 
-**Root cause:** The FPGA LED PIO peripheral is held in reset by the `hps_0.h2f_rst_n` signal. In the generated `hps_system` fabric, `h2f_rst_n` feeds an `altera_reset_controller` that drives `led_pio.reset_n`. While this signal is LOW, the Avalon bus interface of the LED PIO does not respond — the AXI bridge returns SLVERR, which the ARM CPU sees as a synchronous external abort (DFSR = `0x8`).
+There are **two** independent requirements that must both be satisfied for bridge access to work. Missing either one produces the same symptom.
+
+#### Cause 1 — L3 REMAP register (primary)
+
+The L3 NIC-301 interconnect REMAP register at `0xFF800000` controls which address regions are visible to the CPU. After a cold reset (or JTAG programming), **bit 4** (`LWHPS2FPGA`) is cleared, making the Lightweight HPS-to-FPGA bridge address window at `0xFF200000` completely invisible. Any CPU access to this range produces a DECERR at the L3 level, which the ARM core sees as a Synchronous External Abort.
+
+**Fix:** Set bit 4 (and bit 0 for OCRAM low-address alias) before any bridge access:
+
+```c
+#define L3_REMAP  (*(volatile uint32_t *)0xFF800000UL)
+L3_REMAP = (1u << 4) | (1u << 0);  /* LW H2F visible + OCRAM at 0x0 */
+```
+
+> **Note:** This register appears write-only — reads may return `0x00000000` even after writing — but the functional effect is immediate.
+
+This is the same write that U-Boot's `socfpga_bridges_enable()` performs in `arch/arm/mach-socfpga/misc_gen5.c`. In a bare-metal JTAG-load scenario, our application must do it manually.
+
+#### Cause 2 — BRGMODRST bridge reset (secondary)
+
+Even with L3 REMAP set, the FPGA LED PIO peripheral may be held in reset by the `hps_0.h2f_rst_n` signal. In the generated `hps_system` fabric, `h2f_rst_n` feeds an `altera_reset_controller` that drives `led_pio.reset_n`. While this signal is LOW, the Avalon bus interface of the LED PIO does not respond — the AXI bridge returns SLVERR.
 
 `h2f_rst_n` is asserted (LOW) by the FPGA Manager during JTAG configuration. U-Boot SPL releases the AXI bridges early in boot (`RSTMGR_BRGMODRST = 0x0`), but this does not by itself pulse `h2f_rst_n`. If the application simply clears `BRGMODRST` bits that are already zero, it is a no-op — `h2f_rst_n` was never de-asserted.
-
-A second complication: OpenOCD's MEM-AP issues non-secure AXI transactions. `RSTMGR` lives on the L4 MPU (secure-only) bus, so MEM-AP writes to `RSTMGR_BRGMODRST` are silently discarded. Bridge toggling attempted from an OpenOCD `mww` command has no effect.
 
 **Fix:** The application must explicitly assert and then release all three bridge resets while running in ARM secure supervisor mode:
 
 ```c
 /* Assert all bridges — drives h2f_rst_n LOW */
 RSTMGR_BRGMODRST |= BRGMODRST_ALL;   /* 0x7 */
-delay(200000UL);                       /* ~2 ms */
+delay(200000UL);                       /* brief hold */
 
 /* Release all bridges — drives h2f_rst_n HIGH */
 RSTMGR_BRGMODRST &= ~BRGMODRST_ALL;
@@ -396,10 +413,26 @@ delay(200000UL);                       /* let Avalon interconnect settle */
 
 This cycle drives `h2f_rst_n` LOW and then HIGH, clocking the 2-stage reset synchroniser in the FPGA fabric and properly de-asserting `led_pio.reset_n`.
 
+> **Complication:** OpenOCD's MEM-AP issues non-secure AXI transactions. `RSTMGR` lives on the L4 MPU (secure-only) bus, so MEM-AP writes to `RSTMGR_BRGMODRST` are silently discarded. Bridge toggling attempted from an OpenOCD `mww` command has no effect — this must run from CPU code in Secure mode.
+
+#### Watchdog timers
+
+The Cyclone V HPS has **three** watchdog timers that can unexpectedly reset the CPU:
+
+| Timer | Address | Can be disabled? | Strategy |
+|---|---|---|---|
+| L4 WDT0 | `0xFFD02000` | No (`WDT_ALWAYS_EN=1`) | Set max TORR + periodic kick |
+| L4 WDT1 | `0xFFD03000` | No (`WDT_ALWAYS_EN=1`) | Set max TORR + periodic kick |
+| MPCore Private WDT | `0xFFFEC620` | Yes (magic sequence) | Disable via 0x12345678/0x87654321 |
+
+All three must be handled or the CPU will warm-reset within seconds.
+
 **Additional common mistakes for the same symptom:**
 
 | Mistake | Correct value |
 |---|---|
+| Missing `L3_REMAP` write | Must set bit 4 at `0xFF800000` |
 | `BRGMODRST_LWHPS2FPGA = (1u << 2)` | `(1u << 1)` (bit 2 is FPGA2HPS) |
 | Release only LWHPS2FPGA bridge | Release all three bits simultaneously |
+| Only kicking WDT0, ignoring WDT1 | Both L4 watchdogs are always enabled |
 | Write to `SYSMGR_FPGAINTF_EN_2` to enable the bridge | Not needed; that register controls trace/JTAG muxes, not AXI bridges |
