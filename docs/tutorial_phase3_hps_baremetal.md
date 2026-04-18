@@ -525,6 +525,20 @@ Three files make up the software: `startup.S`, `linker.ld`, and `main.c`.
 `software/app/startup.S` is the reset entry point. It runs before `main()`:
 
 ```asm
+/* ARM Exception Vector Table — must be at offset 0 of the binary.
+ * When L3_REMAP maps OCRAM at 0x00000000, the CPU uses this table for
+ * all exceptions.  Each entry branches to _start so the system
+ * re-initialises cleanly on any unexpected trap. */
+_vectors:
+    b   _start          /* 0x00: Reset                */
+    b   _start          /* 0x04: Undefined Instruction */
+    b   _start          /* 0x08: Software Interrupt    */
+    b   _start          /* 0x0C: Prefetch Abort        */
+    b   _start          /* 0x10: Data Abort            */
+    b   _start          /* 0x14: Reserved              */
+    b   _start          /* 0x18: IRQ                   */
+    b   _start          /* 0x1C: FIQ                   */
+
 _start:
     msr  cpsr_c, #0xD3        /* SVC mode, IRQ and FIQ disabled */
     ldr  sp, =_stack_top      /* stack top = end of OCRAM        */
@@ -542,6 +556,8 @@ _start:
 ```
 
 Setting the CPU to SVC mode with interrupts disabled is the standard bare-metal starting state for Cortex-A9. In this mode, all system control registers are writable and no exception can interrupt bridge initialisation.
+
+> **Why the vector table is required:** `hps_bridge_init()` writes to the L3 REMAP register which maps OCRAM at address `0x00000000`. From that point the CPU's exception vector base points into our binary. Without an explicit vector table, any exception (undefined instruction, data abort, etc.) would jump to whatever code happens to live at offset `0x04` in the binary — which may itself be an ARM instruction from the middle of another function, leaving the CPU in an exception mode with a corrupted stack. The vector table ensures every unexpected exception re-enters `_start` and re-initialises in SVC mode.
 
 ### 5.2 The linker script
 
@@ -567,30 +583,100 @@ SECTIONS {
 
 Placing `.startup` first ensures that `_start` is at `0xFFFF0000`. When the JTAG debugger loads the ELF file and sets the PC to the entry point, execution begins at `_start`.
 
-### 5.3 Bridge initialisation in main.c
+### 5.3 Bridge and system initialisation in main.c
 
-Before writing to any FPGA peripheral, the HPS firmware must enable the LW H2F bridge. After a cold reset the bridges are disabled and held in reset by the Reset Manager. Two register writes are required:
+Before writing to any FPGA peripheral, the HPS firmware must complete **three** initialisation steps. Missing any one of them produces a silent data abort or an unexpected reset.
+
+#### Step A — L3 REMAP register
+
+The L3 (NIC-301) interconnect REMAP register at `0xFF800000` controls which address regions are visible to the CPU. After a cold reset (or JTAG programming), **bit 4** (`LWHPS2FPGA`) is cleared — the Lightweight HPS-to-FPGA bridge address window at `0xFF200000` is completely invisible. Any CPU access to this range returns a DECERR at the L3 level, which the ARM core sees as a Synchronous External Abort (DFSR = `0x08`).
 
 ```c
-/* System Manager: enable the LW H2F interface */
-#define SYSMGR_FPGAINTF_EN_2  (*(volatile uint32_t *)(0xFFD08028UL))
-#define FPGAINTF_EN2_LWH2F    (1u << 4)
+/* L3 (NIC-301) interconnect REMAP register.
+ * Bit 4: make LW H2F bridge address window visible at 0xFF200000.
+ * Bit 0: map OCRAM at 0x00000000 (needed for exception vector table). */
+#define L3_REMAP              (*(volatile uint32_t *)0xFF800000UL)
+#define L3_REMAP_OCRAM        (1u << 0)
+#define L3_REMAP_LWHPS2FPGA   (1u << 4)
+```
 
-/* Reset Manager: release the bridge from reset */
-#define RSTMGR_BRGMODRST      (*(volatile uint32_t *)(0xFFD0501CUL))
-#define BRGMODRST_LWHPS2FPGA  (1u << 2)
+> **Note:** This register appears write-only — reads return `0x00000000` even after a successful write — but the functional effect is immediate. This is the same write that U-Boot's `socfpga_bridges_enable()` performs in `arch/arm/mach-socfpga/misc_gen5.c`. In a bare-metal JTAG-load scenario, the application must do it manually.
 
+#### Step B — BRGMODRST bridge reset toggle
+
+Even with L3 REMAP set, the FPGA LED PIO peripheral may be held in reset by the `hps_0.h2f_rst_n` signal. In the generated `hps_system` fabric, `h2f_rst_n` feeds an `altera_reset_controller` that drives `led_pio.reset_n`. While LOW, the Avalon bus interface of the LED PIO does not respond.
+
+`h2f_rst_n` is asserted (LOW) by the FPGA Manager during JTAG configuration. To pulse it HIGH, the firmware must explicitly assert **and then release** all three bridge resets:
+
+```c
+#define RSTMGR_BASE           0xFFD05000UL
+#define RSTMGR_BRGMODRST      (*(volatile uint32_t *)(RSTMGR_BASE + 0x01CUL))
+#define BRGMODRST_HPS2FPGA    (1u << 0)
+#define BRGMODRST_LWHPS2FPGA  (1u << 1)   /* note: bit 1, not bit 2 */
+#define BRGMODRST_FPGA2HPS    (1u << 2)
+#define BRGMODRST_ALL         (BRGMODRST_HPS2FPGA | BRGMODRST_LWHPS2FPGA | BRGMODRST_FPGA2HPS)
+```
+
+The complete `hps_bridge_init()` function:
+
+```c
 static void hps_bridge_init(void)
 {
-    SYSMGR_FPGAINTF_EN_2 |=  FPGAINTF_EN2_LWH2F;
-    RSTMGR_BRGMODRST     &= ~BRGMODRST_LWHPS2FPGA;
+    /* Step A: make LW H2F bridge and OCRAM-at-0x0 visible in L3 */
+    L3_REMAP = L3_REMAP_LWHPS2FPGA | L3_REMAP_OCRAM;
+
+    /* Step B: toggle all bridge resets to pulse h2f_rst_n into FPGA fabric */
+    RSTMGR_BRGMODRST |=  BRGMODRST_ALL;
+    delay(200000UL);
+    RSTMGR_BRGMODRST &= ~BRGMODRST_ALL;
+    delay(200000UL);
 }
 ```
 
-Both register addresses are from the Cyclone V Hard Processor System Technical Reference Manual (TRM). You do not need the HAL or any generated header file — the TRM provides all addresses directly.
+#### Step C — Watchdog timers
 
-> **Key learning #4 — Always initialise the bridge before the first peripheral access.**  
-> If you write to `0xFF200000` without first calling `hps_bridge_init()`, the access goes to a disabled bridge. On a bare-metal system with no MMU or exception handlers, this causes an unhandled data abort and the CPU hangs silently. The symptom is that no LEDs light up and JTAG sometimes loses the connection.
+The Cyclone V HPS has **three** hardware watchdog timers that can reset the CPU unexpectedly:
+
+| Timer | Address | Disableable? | Strategy |
+|---|---|---|---|
+| L4 WDT0 | `0xFFD02000` | No (`WDT_ALWAYS_EN=1`) | Set max TORR + periodic kick |
+| L4 WDT1 | `0xFFD03000` | No (`WDT_ALWAYS_EN=1`) | Set max TORR + periodic kick |
+| MPCore Private WDT | `0xFFFEC620` | Yes | Disable via magic unlock sequence |
+
+> **Critical:** The L4 watchdogs have `WDT_ALWAYS_EN = 1` — the enable bit in `WDT_CR` is **read-only** and permanently set. Reading `WDT_CR` may return `0`, but the watchdog IS running. The only option is to set the maximum timeout and periodically "kick" it.
+
+```c
+#define WDT0_BASE            0xFFD02000UL
+#define WDT1_BASE            0xFFD03000UL
+#define WDT_TORR(base)       (*(volatile uint32_t *)((base) + 0x04UL))
+#define WDT_CRR(base)        (*(volatile uint32_t *)((base) + 0x0CUL))
+#define WDT_KICK_VALUE       0x76u
+
+#define MPCORE_WDT_BASE      0xFFFEC620UL
+#define MPCORE_WDT_DISABLE   (*(volatile uint32_t *)(MPCORE_WDT_BASE + 0x14UL))
+#define MPCORE_WDT_CTRL      (*(volatile uint32_t *)(MPCORE_WDT_BASE + 0x08UL))
+
+static void wdt_init(void)
+{
+    WDT_TORR(WDT0_BASE) = 0xFFu;    /* max timeout: TOP=0xF, TOP_INIT=0xF */
+    WDT_CRR(WDT0_BASE)  = WDT_KICK_VALUE;
+    WDT_TORR(WDT1_BASE) = 0xFFu;
+    WDT_CRR(WDT1_BASE)  = WDT_KICK_VALUE;
+
+    /* MPCore private watchdog: unlock then stop */
+    MPCORE_WDT_DISABLE = 0x12345678u;
+    MPCORE_WDT_DISABLE = 0x87654321u;
+    MPCORE_WDT_CTRL    = 0;
+}
+
+static inline void wdt_kick(void)
+{
+    WDT_CRR(WDT0_BASE) = WDT_KICK_VALUE;
+    WDT_CRR(WDT1_BASE) = WDT_KICK_VALUE;
+}
+```
+
+All register addresses are from the Cyclone V Hard Processor System Technical Reference Manual (TRM). You do not need the HAL or any generated header file — the TRM provides all addresses directly.
 
 ### 5.4 The LED pattern loop
 
@@ -610,9 +696,11 @@ void main(void)
     uint32_t idx = 0;
     const uint32_t num_patterns = sizeof(patterns) / sizeof(patterns[0]);
 
-    hps_bridge_init();
+    wdt_init();         /* handle all three watchdogs first */
+    hps_bridge_init();  /* L3 REMAP + bridge reset toggle   */
 
     while (1) {
+        wdt_kick();     /* must be called before watchdog timeout */
         LED_PIO_DATA = patterns[idx];
         idx++;
         if (idx >= num_patterns)
@@ -621,6 +709,9 @@ void main(void)
     }
 }
 ```
+
+> **Key learning #4 — Always call `wdt_init()` before `hps_bridge_init()`.**  
+> The watchdog timers are already running when your JTAG-loaded code begins. On a Cyclone V, the L4 WDTs expire in ~2–30 seconds depending on the TORR value set by boot code. Call `wdt_init()` as the very first thing in `main()`, before any other initialisation — including the bridge and delay calls in `hps_bridge_init()`.
 
 > **Key learning #5 — Do not use the modulo operator (`%`) with `-nostdlib`.**  
 > The ARM GCC toolchain implements integer division (including modulo) by calling the runtime helper `__aeabi_uidivmod`. With `-nostdlib` the helper is not linked in, so any use of `%` causes a link error. The pattern index wraparound uses an explicit comparison and reset (`if (idx >= num_patterns) idx = 0`) instead.
@@ -686,39 +777,34 @@ docker run --rm \
 
 ### 6.2 Program the FPGA
 
-Connect the DE10-Nano's USB-Blaster port to your host machine, then run from outside Docker (where the JTAG driver has USB access):
-
-```bash
-quartus_pgm -m jtag -o "p;05_hps_led/quartus/de10_nano.sof"
-```
-
-Or, if running the Quartus tools natively on your host:
+From the `05_hps_led/quartus/` directory, use the Makefile target. On a WSL2/Docker setup the Makefile handles USB ownership automatically (detaching from WSL2, programming via Windows `quartus_pgm.exe`, then re-attaching to WSL2):
 
 ```bash
 cd 05_hps_led/quartus
-quartus_pgm -m jtag -o "p;de10_nano.sof"
+make program-sof
 ```
 
 The bitstream is loaded into the FPGA SRAM configuration (volatile; lost on power cycle).
 
 ### 6.3 Load and run the firmware
 
-Transfer the ELF to OCRAM and start execution using the Quartus HPS programming tool:
+Transfer the raw binary to OCRAM and start execution via OpenOCD running inside Docker:
 
 ```bash
-quartus_hps -c 1 -o GDBSERVER --gdbserver-port 3333 &
-arm-none-eabi-gdb -ex "target remote :3333" \
-                  -ex "load" \
-                  -ex "continue" \
-                  05_hps_led/software/app/hps_led.elf
+cd 05_hps_led/quartus
+make download-elf
 ```
 
-Alternatively, use the `nios2-download`-equivalent for HPS (if your toolchain includes it):
+Expected output:
 
-```bash
-quartus_hps -c 1 -o P --program 05_hps_led/software/app/hps_led.bin \
-            --addr 0xFFFF0000
 ```
+Attaching USB-Blaster (busid 2-4) to WSL2...
+524 bytes written at address 0xffff0000
+downloaded 524 bytes in 0.17s (3.0 KiB/s)
+Done: HPS LED application is running.
+```
+
+> **How it works:** `download-elf` starts a `jtagd` daemon inside the `raetro/quartus:23.1` Docker container, then launches OpenOCD with the `aji_client` interface (the only JTAG interface supported by that build). OpenOCD halts the CPU, loads the raw `.bin` file into OCRAM at `0xFFFF0000`, sets PC to the entry point, and resumes execution. See `05_hps_led/scripts/de10_nano_hps.cfg` for the full OpenOCD configuration.
 
 ### 6.4 Observe the LEDs
 
@@ -729,7 +815,7 @@ The eight LEDs on the DE10-Nano cycle through the sequence:
 3. **Alternating stripes** — `▪░▪░▪░▪░` ↔ `░▪░▪░▪░▪` (4 steps)
 4. **All on / all off** — `▪▪▪▪▪▪▪▪` → `░░░░░░░░` (2 steps)
 
-Each step lasts approximately 20–40 ms (2 000 000 busy-loop iterations at 50–100 MHz).
+Each step lasts approximately 320 ms (2 000 000 busy-loop iterations at ~25 MHz osc1_clk in JTAG-load mode, where PLLs are not configured).
 
 ---
 
@@ -760,13 +846,35 @@ Any `QSYS_FILE` assignment in your Quartus project (or `.qsf`) causes Quartus to
 
 **Fix:** Use the explicit four-stage sequence: `quartus_map` → `quartus_sta -t hps_sdram_p0_pin_assignments.tcl` → `quartus_map` → `quartus_fit` → `quartus_asm` → `quartus_sta`.
 
-### 4. Initialise the HPS bridges before the first FPGA register access
+### 4. The LW bridge requires L3 REMAP _and_ BRGMODRST — in that order
 
-After reset, all HPS-to-FPGA bridges are disabled and held in reset. Writing to `0xFF200000` without enabling the bridge causes a silent data abort.
+After JTAG programming, the Lightweight HPS-to-FPGA bridge is invisible to the CPU **and** held in reset. Two separate actions are required; missing either one causes a silent data abort on the first write to `0xFF200000`:
 
-**Fix:** Call `SYSMGR_FPGAINTF_EN_2 |= FPGAINTF_EN2_LWH2F` and `RSTMGR_BRGMODRST &= ~BRGMODRST_LWHPS2FPGA` before the first peripheral access.
+1. **L3 REMAP** (`0xFF800000` bit 4) — makes the bridge address window visible in the L3 interconnect. Without this, the L3 returns DECERR → Synchronous External Abort (DFSR=`0x08`). This register appears write-only (reads return `0`).
+2. **BRGMODRST toggle** — assert all three bridge reset bits then release them to pulse `h2f_rst_n` into the FPGA fabric, clearing the reset on `led_pio.reset_n`.
 
-### 5. Do not use `%` with `-nostdlib`
+**Fix:** Call `L3_REMAP = (1u << 4) | (1u << 0)`, then toggle `RSTMGR_BRGMODRST` with all three bits. See `hps_bridge_init()` in `main.c`.
+
+**Common mistakes that still leave the LEDs off:**
+
+| Mistake | Result |
+|---|---|
+| Missing L3_REMAP write | DECERR data abort on first bridge access |
+| `BRGMODRST_LWHPS2FPGA = (1u << 2)` | Wrong bit — bit 2 is FPGA2HPS; LWHPS2FPGA is bit 1 |
+| Clearing only the LWHPS2FPGA bit | `h2f_rst_n` may not pulse cleanly; release all three |
+| Writing `SYSMGR_FPGAINTF_EN_2` | This register controls trace/JTAG mux, not AXI bridges |
+
+### 5. All three watchdog timers must be handled
+
+The Cyclone V has two L4 APB watchdogs (`WDT_ALWAYS_EN=1` — cannot be disabled) and one MPCore private watchdog. Missing any one causes an unexpected warm reset:
+
+- WDT0 / WDT1: set `TORR = 0xFF` (max period) and write `0x76` to `CRR` before the counter expires
+- MPCore WDT: disable via the `0x12345678` / `0x87654321` magic unlock sequence, then clear `CTRL`
+- Call `wdt_kick()` in the main loop — a 2 000 000-iteration delay takes ~320 ms at 25 MHz (longer than many default timeout periods)
+
+**Fix:** Call `wdt_init()` as the **first** thing in `main()`, before any delay or bridge access. Kick both L4 watchdogs at the top of every main loop iteration.
+
+### 6. Do not use `%` with `-nostdlib`
 
 Integer division with `%` or `/` causes the compiler to emit a call to `__aeabi_uidivmod` or `__aeabi_idiv`. With `-nostdlib` these helpers are not available and the linker fails:
 
@@ -776,9 +884,15 @@ undefined reference to `__aeabi_uidivmod'
 
 **Fix:** Replace modulo with an explicit compare-and-reset pattern, or link against `libgcc` (add `-lgcc` to `LDFLAGS`).
 
-### 6. ARM GCC flag: use `-mfpu=neon-vfpv4`, not `neon-vfpv3`
+### 7. ARM GCC flag: use `-mfpu=neon-vfpv4`, not `neon-vfpv3`
 
 The `raetro/quartus:23.1` container includes GCC 6.x for the ARM cross-toolchain. GCC 6 does not recognise `-mfpu=neon-vfpv3`. The Cortex-A9 in the Cyclone V SoC supports VFPv4, so `-mfpu=neon-vfpv4` is both correct and accepted by GCC 6.
+
+### 8. The exception vector table must be at offset 0 when OCRAM is remapped
+
+`hps_bridge_init()` writes `L3_REMAP` with bit 0 set, which maps OCRAM at address `0x00000000`. From that point, ARM exception vectors (`0x00000000`–`0x0000001C`) point into our binary. If the binary has no vector table, any exception will branch to whatever instruction happens to be at offset `0x04` in the binary, leaving the CPU stuck in an exception mode (UND, Abort, etc.) with a corrupted stack.
+
+**Fix:** Place an 8-entry ARM branch table at the very start of `.startup` (before `_start`). Each entry should `b _start` so that any unexpected exception re-enters the initialisation sequence cleanly in SVC mode.
 
 ---
 
@@ -793,7 +907,7 @@ You have built a complete HPS bare-metal system using a fully scripted workflow:
 | Created Quartus project | `quartus_sh -t de10_nano_project.tcl` (QIP-only) |
 | Compiled FPGA bitstream | Two-pass: `quartus_map` → pin assignments → `quartus_map` → `quartus_fit` → `quartus_asm` |
 | Cross-compiled ARM firmware | `arm-linux-gnueabihf-gcc` with `startup.S` + `linker.ld` |
-| Deployed to board | `quartus_pgm` + `quartus_hps` |
+| Deployed to board | `make program-sof` + `make download-elf` (WSL2/Docker JTAG workflow) |
 
 No GUI was opened at any point. Every step is reproducible by `make all`.
 
