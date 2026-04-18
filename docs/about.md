@@ -13,6 +13,7 @@
   * Mastering the Hardware Interrupts on Nios II and the ARM CPU.
   * Remote Software Debugging with GDB for Nios II and the ARM CPU.
   * Embedded Linux configuration with the ARM CPU.
+  * Real-Time OS (Zephyr) configuration with the ARM CPU.
   * Control the LED from a PC through Ethernet.
 * On the way you will learn best practices of Intel FPGA development based (Cyclone V SoC) on the DE10-Nano board.
 * You will learn about scripting and about Continous Development/Continous Integration CI/CD as well

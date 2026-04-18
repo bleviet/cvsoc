@@ -47,6 +47,8 @@ The table below maps each phase to its key CLI tools. No GUI is required at any 
 | 6 FPGA bitstream load | `cp design.rbf /lib/firmware/ && echo 1 > /sys/class/fpga_manager/...` | Loads bitstream from Linux |
 | 7 UDP server | `make -C software/server/` | Builds Linux UDP server application |
 | 7 PC client | `python send_led_pattern.py --host <ip> --pattern 0xA5` | Sends commands from PC |
+| 8 Zephyr build | `west build -b cyclonev_socdk` | Builds Zephyr RTOS application |
+| 8 Zephyr debug | `west debug` | Launches OpenOCD/GDB for Zephyr |
 
 > **One unavoidable manual step:** writing the SD card image to physical media  
 > (`dd if=sdcard.img of=/dev/sdX bs=4M status=progress`) requires a human to  
@@ -319,6 +321,34 @@ Two sub-tracks (implement one or both):
 
 ---
 
+## Phase 8 — Real-Time OS (Zephyr)
+
+**Goal:** Transition from bare-metal to a modern, thread-based Real-Time Operating System. Students will port their LED and Interrupt logic to the Zephyr RTOS.
+
+### 8.1 Zephyr Environment Setup
+- Install the `west` meta-tool and the Zephyr SDK.
+- Create a workspace using the `cyclonev_socdk` board as a baseline.
+- Teaches: West workspace management, Devicetree overlays (`.overlay`) to map DE10-Nano specific peripherals.
+
+### 8.2 HPS-FPGA Access in Zephyr
+- Implement a multi-threaded application where one thread manages LED patterns.
+- Access the FPGA LED Controller via the LWHPS bridge using Zephyr's Devicetree macros (`DT_NODELABEL`).
+- Teaches: Zephyr kernel services (threads, semaphores), memory-mapped I/O in an RTOS context.
+
+### 8.3 RTOS Interrupt Handling
+- Port the push-button interrupt logic to the Zephyr GPIO driver.
+- Use `gpio_add_callback` to trigger thread-safe events from button presses.
+- Teaches: Deterministic interrupt handling, safe interaction between ISRs and threads.
+
+### 8.4 Networking with Zephyr (Optional)
+- Enable the Cyclone V EMAC driver in Zephyr.
+- Implement a simple CoAP or MQTT client to report board status.
+
+### 8.5 Documentation
+- `12_zephyr_led/doc/README.md`: Zephyr on Cyclone V SoC, Devicetree vs. Bare-metal headers, RTOS design patterns.
+
+---
+
 ## Cross-Cutting Track: Quality & Tooling (Ongoing)
 
 These improvements are not tied to a single phase and should progress in parallel.
@@ -329,7 +359,7 @@ These improvements are not tied to a single phase and should progress in paralle
 | Phase 0          | All existing IPs have testbenches |
 | Phase 1          | All new IPs have testbenches |
 | Phase 2+         | Avalon MM Slave compliance tests |
-| Phase 7+         | Co-simulation (cocotb + Python) for HPS interfaces |
+| Phase 8+         | Co-simulation (cocotb + Python) for HPS interfaces |
 
 ### CI/CD Evolution
 | Milestone | CI/CD Addition |
@@ -337,7 +367,7 @@ These improvements are not tied to a single phase and should progress in paralle
 | Phase 0   | GHDL simulation on every PR |
 | Phase 2   | Nios II BSP compilation check |
 | Phase 3+  | ARM cross-compilation check |
-| Phase 7+  | Buildroot/Yocto build verification |
+| Phase 8+  | Zephyr build verification |
 
 ### Documentation Standards
 - Every project directory must contain `doc/README.md` before being merged
@@ -358,7 +388,8 @@ These improvements are not tied to a single phase and should progress in paralle
 | `08–09`   | Software Debugging (GDB) |
 | `10`      | Embedded Linux |
 | `11`      | Ethernet / Networking |
-| `12+`     | Reserved for future extensions |
+| `12`      | Zephyr RTOS |
+| `13+`     | Reserved for future extensions |
 
 ---
 
@@ -371,8 +402,9 @@ Phase 0 (Infrastructure)
                     └── Phase 3 (HPS Bare Metal)
                             └── Phase 4 (Interrupts)
                                     └── Phase 5 (Debugging)
-                                            └── Phase 6 (Embedded Linux)
-                                                    └── Phase 7 (Ethernet)
+                                            ├── Phase 6 (Embedded Linux)
+                                            │       └── Phase 7 (Ethernet)
+                                            └── Phase 8 (Zephyr RTOS)
 ```
 
 Each phase gate-checks:
