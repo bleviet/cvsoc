@@ -688,4 +688,4 @@ Phase 2 used the **FPGA fabric** to run software on a *soft-core* CPU. Phase 3 m
 
 The same scripted discipline applies: `make all` from the project directory produces the complete output.
 
-Continue to `docs/tutorial_phase3_hps_baremetal.md` *(coming soon)*.
+Continue to [`docs/tutorial_phase3_hps_baremetal.md`](tutorial_phase3_hps_baremetal.md).
