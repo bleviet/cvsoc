@@ -136,7 +136,20 @@ After binding, `usbipd list` shows `Shared` in the STATE column.
 
 ## Step 2 — Understand the JTAG chain
 
-The DE10-Nano exposes two devices on a single JTAG scan chain via the USB-Blaster II:
+To see the devices in the JTAG chain, you can use the `jtagconfig` utility. From WSL2, you can run this command inside the Docker container (ensuring the USB-Blaster is attached via `usbipd` first):
+
+```bash
+docker run --rm --privileged -v /dev/bus/usb:/dev/bus/usb raetro/quartus:23.1 jtagconfig
+```
+
+**Expected output:**
+```
+1) DE-SoC [1-1]                               
+  4BA00477   SOCVHPS
+  02D020DD   5CSEBA6(.|ES)/5CSEMA6/..
+```
+
+The output confirms that the DE10-Nano exposes two devices on a single JTAG scan chain via the USB-Blaster II:
 
 | Position | Device | ID Code | Purpose |
 |---|---|---|---|
