@@ -20,7 +20,19 @@ APP_DIR       = ../software/app
 
 ARM_CC        ?= arm-linux-gnueabihf-gcc
 
-.PHONY: all setup qsys patch-oct project compile app clean check_timing
+# Windows Quartus Programmer (callable from WSL2 via interop — no extra setup).
+# Override with: make QUARTUS_PGM=<path> program-sof
+QUARTUS_PGM  ?= /mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe
+DOCKER_IMAGE ?= raetro/quartus:23.1
+
+# HPS board connection for deploy-elf.
+# The ELF is a bare-metal app targeting HPS OCRAM (0xFFFF0000).
+# Load it via JTAG (DS-5 or OpenOCD+arm-none-eabi-gdb) or copy to SD card.
+HPS_IP       ?= 192.168.1.100
+HPS_USER     ?= root
+
+.PHONY: all setup qsys patch-oct project compile app clean check_timing \
+        program-sof download-elf deploy-elf
 
 all: qsys project compile app
 
@@ -84,6 +96,49 @@ compile:
 # ── Step 3: cross-compile the ARM bare-metal application ─────────────────
 app:
 	$(MAKE) -C $(APP_DIR) CC=$(ARM_CC)
+
+# ── Programming & deploy targets ──────────────────────────────────────────────
+# program-sof: Programs the FPGA via JTAG using the Windows Quartus Programmer.
+#   Works from WSL2 without usbipd-win because quartus_pgm.exe runs on Windows.
+#   The .sof is copied to C:\Windows\Temp first to avoid UNC-path issues.
+SOF_WIN_TMP := /mnt/c/Windows/Temp
+program-sof: $(REVISION_NAME).sof
+	cp $< $(SOF_WIN_TMP)/$(REVISION_NAME).sof
+	$(QUARTUS_PGM) -m jtag -o "p;C:\Windows\Temp\$(REVISION_NAME).sof@2"
+
+# download-elf: Loads the bare-metal ELF into HPS OCRAM via JTAG (OpenOCD in Docker).
+#   Requires usbipd-win to attach USB-Blaster to WSL2 first (same as 04_nios2_led).
+#   Runs OpenOCD inside the raetro/quartus container (--privileged for USB access).
+OPENOCD_CFG  = ../scripts/de10_nano_hps.cfg
+REPO_ROOT    = $(realpath ../..)
+UNAME_SHIM   = $(REPO_ROOT)/common/docker/uname_shim.sh
+
+download-elf: $(APP_DIR)/hps_led.elf
+	docker run --rm --privileged \
+	  -v $(REPO_ROOT):/work \
+	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
+	  -v $(realpath $(OPENOCD_CFG)):/tmp/de10_nano_hps.cfg:ro \
+	  $(DOCKER_IMAGE) \
+	  bash -c '\
+	    /opt/intelFPGA/quartus/bin/jtagd && sleep 2 && \
+	    /opt/intelFPGA/quartus/bin/openocd \
+	      -f /tmp/de10_nano_hps.cfg \
+	      -c "init" \
+	      -c "halt" \
+	      -c "load_image /work/05_hps_led/software/app/hps_led.bin 0xFFFF0000 bin" \
+	      -c "resume 0xFFFF0000" \
+	      -c "shutdown"'
+	@echo "Done: HPS LED application is running."
+
+# deploy-elf: Copies the bare-metal HPS ELF + binary to the board over SSH.
+#   Boot the board to U-Boot or Linux first, then run:
+#     make HPS_IP=<board-ip> deploy-elf
+#   On the board (U-Boot):  go 0xFFFF0000
+deploy-elf: $(APP_DIR)/hps_led.elf
+	scp $(APP_DIR)/hps_led.elf $(APP_DIR)/hps_led.bin \
+	    $(HPS_USER)@$(HPS_IP):/tmp/
+	@echo "ELF + binary copied to $(HPS_USER)@$(HPS_IP):/tmp/"
+	@echo "  To run with U-Boot: fatload / go 0xFFFF0000"
 
 # ── Timing check ──────────────────────────────────────────────────────────
 check_timing:

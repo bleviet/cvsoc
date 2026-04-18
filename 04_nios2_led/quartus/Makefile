@@ -17,7 +17,19 @@ SOPCINFO      = ../qsys/nios2_system.sopcinfo
 BSP_DIR       = ../software/bsp
 APP_DIR       = ../software/app
 
-.PHONY: all qsys project compile bsp app clean
+# Windows Quartus Programmer (callable from WSL2 via interop — no extra setup).
+# Override with: make QUARTUS_PGM=<path> program-sof
+QUARTUS_PGM  ?= /mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe
+
+# Docker image that contains nios2-download / nios2-terminal.
+# Requires usbipd-win: https://github.com/dorssel/usbipd-win
+#   1. On Windows: usbipd list   → note bus-id of "USB-Blaster"
+#   2. On Windows: usbipd attach --wsl --busid <bus-id>
+#   3. Then run: make download-elf  (or  make terminal)
+DOCKER_IMAGE ?= raetro/quartus:23.1
+
+.PHONY: all qsys project compile bsp app clean \
+        program-sof download-elf terminal
 
 all: qsys project compile bsp app
 
@@ -58,6 +70,35 @@ app: bsp
 # ── Timing check (reuse the script from existing projects) ───────────────────
 check_timing:
 	python ../../00_led_blinking/scripts/check_timing_slacks.py $(REVISION_NAME).sta.rpt 2>/dev/null || true
+
+# ── Programming & debug targets ──────────────────────────────────────────────
+# program-sof: Programs the FPGA via JTAG using the Windows Quartus Programmer.
+#   Works from WSL2 without usbipd-win because quartus_pgm.exe runs on Windows.
+#   The .sof is copied to C:\Windows\Temp first to avoid UNC-path issues.
+SOF_WIN_TMP := /mnt/c/Windows/Temp
+program-sof: $(REVISION_NAME).sof
+	cp $< $(SOF_WIN_TMP)/$(REVISION_NAME).sof
+	$(QUARTUS_PGM) -m jtag -o "p;C:\Windows\Temp\$(REVISION_NAME).sof@2"
+
+# download-elf: Downloads the Nios II ELF to the soft-core via JTAG and starts it.
+#   Requires the USB-Blaster attached to WSL2 first (see usbipd-win note above).
+#   The uname_shim prevents nios2-download from detecting WSL inside Docker.
+REPO_ROOT = $(realpath ../..)
+UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
+download-elf: $(APP_DIR)/nios2_led.elf
+	docker run --rm --privileged \
+	  -v $(REPO_ROOT):/work \
+	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
+	  $(DOCKER_IMAGE) \
+	  nios2-download -g /work/04_nios2_led/software/app/nios2_led.elf
+
+# terminal: Opens the Nios II JTAG UART terminal (Ctrl-C to quit).
+#   Requires the USB-Blaster attached to WSL2 (same usbipd-win step as above).
+terminal:
+	docker run --rm -it --privileged \
+	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
+	  $(DOCKER_IMAGE) \
+	  nios2-terminal
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 FILE_ENDINGS_FOR_REMOVAL = .rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt
