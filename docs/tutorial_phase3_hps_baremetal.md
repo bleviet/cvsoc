@@ -913,15 +913,17 @@ No GUI was opened at any point. Every step is reproducible by `make all`.
 
 ---
 
-## What's next — Phase 4: Embedded Linux on HPS
+## What's next — Phase 4: Hardware Interrupts
 
-Phase 3 ran a bare-metal C program directly on the ARM core. Phase 4 boots a complete **embedded Linux** distribution on the same core. You will:
+Phase 3 polled the LED peripheral in a tight loop. Phase 4 replaces polling with **hardware interrupts** driven by the DE10-Nano push buttons (`KEY[0]` / `KEY[1]`). You will:
 
-- Build a Linux image for the DE10-Nano using **Buildroot** (entirely Makefile-driven)
-- Write a **device tree overlay** that describes the FPGA LED peripheral to the Linux kernel
-- Load the FPGA bitstream from Linux using the **FPGA Manager** sysfs interface
-- Write a Linux user-space application (or kernel driver) that controls the LED PIO
+- Extend both the Nios II and the HPS Platform Designer systems with a **button PIO** component configured in edge-triggered interrupt mode
+- Handle interrupts on the **Nios II** using the HAL `alt_ic_isr_register()` API (project `06_nios2_interrupts`)
+- Handle interrupts on the **ARM Cortex-A9** by configuring the **Generic Interrupt Controller (GIC)**, setting up the ARM exception vector table, and writing an IRQ service routine (project `07_hps_interrupts`)
+- Learn interrupt latency, volatile variables, race conditions, and hardware debouncing
 
-The same LED peripheral you built in this phase will continue to work — only the software stack changes.
+The LED peripheral built in this phase is reused unchanged — only the trigger mechanism changes.
 
-Continue to `docs/tutorial_phase4_linux.md` *(coming soon)*.
+Continue to `docs/tutorial_phase4_interrupts.md` *(coming soon)*.
+
+> **Looking further ahead:** Phase 5 boots **Embedded Linux** (Buildroot) on the same ARM core and controls the LED via a device tree overlay and the FPGA Manager sysfs interface. Phase 6 adds **Ethernet** control from a PC over UDP.
