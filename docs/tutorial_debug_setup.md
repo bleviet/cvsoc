@@ -358,3 +358,35 @@ This only needs to be done once per Windows session (or after a reboot resets th
 ### The FPGA loses its configuration after a power cycle
 
 This is expected. The `.sof` file programs the FPGA's volatile SRAM-based configuration — it is lost when power is removed. The configuration is not written to the flash device on the board. For persistent programming across power cycles you would need to write to the board's flash using `quartus_pgm` in AS (Active Serial) mode, which is outside the scope of this tutorial series.
+
+### HPS LED application loads but LEDs stay off (data abort on `0xFF200000`)
+
+**Symptom:** The binary loads cleanly, execution starts at `0xFFFF0000`, but the LEDs do not light up. If you halt the CPU with OpenOCD, you may see the PC stuck in an exception handler or a data abort in the prefetch/data abort vector.
+
+**Root cause:** The FPGA LED PIO peripheral is held in reset by the `hps_0.h2f_rst_n` signal. In the generated `hps_system` fabric, `h2f_rst_n` feeds an `altera_reset_controller` that drives `led_pio.reset_n`. While this signal is LOW, the Avalon bus interface of the LED PIO does not respond — the AXI bridge returns SLVERR, which the ARM CPU sees as a synchronous external abort (DFSR = `0x8`).
+
+`h2f_rst_n` is asserted (LOW) by the FPGA Manager during JTAG configuration. U-Boot SPL releases the AXI bridges early in boot (`RSTMGR_BRGMODRST = 0x0`), but this does not by itself pulse `h2f_rst_n`. If the application simply clears `BRGMODRST` bits that are already zero, it is a no-op — `h2f_rst_n` was never de-asserted.
+
+A second complication: OpenOCD's MEM-AP issues non-secure AXI transactions. `RSTMGR` lives on the L4 MPU (secure-only) bus, so MEM-AP writes to `RSTMGR_BRGMODRST` are silently discarded. Bridge toggling attempted from an OpenOCD `mww` command has no effect.
+
+**Fix:** The application must explicitly assert and then release all three bridge resets while running in ARM secure supervisor mode:
+
+```c
+/* Assert all bridges — drives h2f_rst_n LOW */
+RSTMGR_BRGMODRST |= BRGMODRST_ALL;   /* 0x7 */
+delay(200000UL);                       /* ~2 ms */
+
+/* Release all bridges — drives h2f_rst_n HIGH */
+RSTMGR_BRGMODRST &= ~BRGMODRST_ALL;
+delay(200000UL);                       /* let Avalon interconnect settle */
+```
+
+This cycle drives `h2f_rst_n` LOW and then HIGH, clocking the 2-stage reset synchroniser in the FPGA fabric and properly de-asserting `led_pio.reset_n`.
+
+**Additional common mistakes for the same symptom:**
+
+| Mistake | Correct value |
+|---|---|
+| `BRGMODRST_LWHPS2FPGA = (1u << 2)` | `(1u << 1)` (bit 2 is FPGA2HPS) |
+| Release only LWHPS2FPGA bridge | Release all three bits simultaneously |
+| Write to `SYSMGR_FPGAINTF_EN_2` to enable the bridge | Not needed; that register controls trace/JTAG muxes, not AXI bridges |
