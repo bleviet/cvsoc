@@ -10,24 +10,25 @@
  *   LED PIO DATA register       : 0xFF200000 + 0x0000 = 0xFF200000
  *
  * Bridge initialisation:
- *   The System Manager (SYSMGR) enables the bridge interface.
- *   The Reset Manager (RSTMGR) releases the bridge from reset.
- *   Both must be configured before the first PIO access.
+ *   The Reset Manager (RSTMGR) holds all three AXI bridges in reset after
+ *   a cold start.  All three must be released simultaneously — the FPGA
+ *   interconnect fabric requires every bridge reset to be de-asserted before
+ *   any bridge becomes responsive.
+ *   (The SYSMGR FPGAINTF registers control debug/trace/JTAG signals between
+ *   the FPGA and HPS, not the AXI bridges, and are not needed here.)
  */
 
 #include <stdint.h>
 
 /* ── Register addresses (Cyclone V SoC HPS TRM) ─────────────────────────── */
 
-/* System Manager */
-#define SYSMGR_BASE             0xFFD08000UL
-#define SYSMGR_FPGAINTF_EN_2    (*(volatile uint32_t *)(SYSMGR_BASE + 0x028UL))
-#define FPGAINTF_EN2_LWH2F      (1u << 4)   /* enable LW HPS-to-FPGA bridge */
-
-/* Reset Manager */
+/* Reset Manager — bridge module reset register */
 #define RSTMGR_BASE             0xFFD05000UL
 #define RSTMGR_BRGMODRST        (*(volatile uint32_t *)(RSTMGR_BASE + 0x01CUL))
-#define BRGMODRST_LWHPS2FPGA    (1u << 2)   /* bridge in reset when set */
+#define BRGMODRST_HPS2FPGA      (1u << 0)   /* HPS-to-FPGA bridge */
+#define BRGMODRST_LWHPS2FPGA    (1u << 1)   /* Lightweight HPS-to-FPGA bridge */
+#define BRGMODRST_FPGA2HPS      (1u << 2)   /* FPGA-to-HPS bridge */
+#define BRGMODRST_ALL           (BRGMODRST_HPS2FPGA | BRGMODRST_LWHPS2FPGA | BRGMODRST_FPGA2HPS)
 
 /* Lightweight HPS-to-FPGA bridge */
 #define H2F_LW_BASE             0xFF200000UL
@@ -37,21 +38,30 @@
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
+static void delay(volatile uint32_t count);
+
 /*
- * hps_bridge_init — enable the Lightweight HPS-to-FPGA bridge.
+ * hps_bridge_init — toggle all AXI bridges through a full reset cycle.
  *
- * After a cold reset the bridges are disabled and held in reset by the
- * Reset Manager.  This function:
- *   1. Enables the LW H2F interface in the System Manager.
- *   2. Releases the LW H2F bridge from reset.
- *
- * The function is idempotent — calling it when the bridge is already active
- * has no side-effects.
+ * U-Boot SPL releases the bridges early in boot (BRGMODRST = 0), so a plain
+ * clear is a no-op.  After JTAG FPGA programming the FPGA fabric's
+ * h2f_rst_n-driven reset synchroniser may still be latched.  The only
+ * reliable way to de-assert it is to explicitly assert all bridge resets
+ * (which drives h2f_rst_n LOW into the FPGA fabric) and then release them.
+ * This must be done from the CPU in secure-supervisor mode — MEM-AP writes
+ * to RSTMGR are silently discarded (non-secure bus → secured register).
  */
 static void hps_bridge_init(void)
 {
-    SYSMGR_FPGAINTF_EN_2 |= FPGAINTF_EN2_LWH2F;
-    RSTMGR_BRGMODRST     &= ~BRGMODRST_LWHPS2FPGA;
+    /* Assert all bridges — this drives h2f_rst_n LOW into the FPGA fabric. */
+    RSTMGR_BRGMODRST |= BRGMODRST_ALL;
+    delay(200000UL);    /* ~2 ms at ~100 MHz: let reset propagate */
+
+    /* Release all bridges simultaneously — drives h2f_rst_n HIGH again.
+     * The FPGA altera_reset_controller de-asserts reset after 2 clock edges
+     * (SYNC_DEPTH = 2 at 50 MHz ≈ 40 ns) so any delay after this is enough. */
+    RSTMGR_BRGMODRST &= ~BRGMODRST_ALL;
+    delay(200000UL);    /* ~2 ms: let Avalon interconnect come out of reset */
 }
 
 /*

@@ -52,6 +52,6 @@ SECTIONS
         __bss_end = .;
     } > OCRAM
 
-    /* Stack top — immediately past the end of OCRAM */
-    _stack_top = ORIGIN(OCRAM) + LENGTH(OCRAM);
+    /* Stack top — last valid address of OCRAM (-4 keeps SP 4-byte aligned) */
+    _stack_top = ORIGIN(OCRAM) + LENGTH(OCRAM) - 4;
 }

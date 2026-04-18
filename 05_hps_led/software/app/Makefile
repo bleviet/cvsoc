@@ -22,7 +22,7 @@ CFLAGS  := -mcpu=cortex-a9 -mfpu=neon-vfpv4 -mfloat-abi=hard \
            -ffreestanding -nostdlib \
            -Os -g -Wall -Wextra
 
-LDFLAGS := -T $(LD_SCRIPT) -nostdlib
+LDFLAGS := -T $(LD_SCRIPT) -nostdlib -Wl,--build-id=none
 
 .PHONY: all clean
 
