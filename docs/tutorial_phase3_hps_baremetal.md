@@ -125,7 +125,7 @@ The reason for running from **OCRAM** (`0xFFFF0000`, 64 KB) rather than DDR3 is 
         └── main.c              ← LED cycling application
 ```
 
-The `hdl/` directory contains an alternative Verilog top-level wrapper (`de10_nano_top.v`) that was explored during development. It is kept for reference but is **not used** in the build — the Platform Designer system (`hps_system`) is the Quartus top-level entity directly.
+The `hdl/` directory contains the VHDL top-level wrapper (`de10_nano_top.vhd`) that connects board-level I/O pins (`fpga_clk1_50`, `key[0]`, `led[7:0]`, `hps_ddr3_*`) to the generated Platform Designer system (`hps_system`). This wrapper is the Quartus top-level entity.
 
 ---
 
@@ -277,6 +277,8 @@ Platform Designer generates a Verilog top-level entity called `hps_system` with 
 | `led_external_connection_export[7:0]` | out | Board LEDs |
 | *(and ~20 more DDR3 control/strobe pins)* | | |
 
+The VHDL top-level wrapper (`hdl/de10_nano_top.vhd`) re-exports these as clean board-level port names: `fpga_clk1_50`, `key[0]`, `led[7:0]`, and `hps_ddr3_*`.
+
 ### 1.6 Generate the system
 
 ```bash
@@ -390,12 +392,13 @@ set_global_assignment -name FAMILY "Cyclone V"
 set_global_assignment -name DEVICE 5CSEBA6U23I7
 set_global_assignment -name SDC_FILE de10_nano.sdc
 
-# hps_system is the top-level entity (no Verilog wrapper needed)
-set_global_assignment -name TOP_LEVEL_ENTITY hps_system
+# VHDL top-level wrapper — connects board pins to the Platform Designer system
+set_global_assignment -name TOP_LEVEL_ENTITY de10_nano_top
+set_global_assignment -name VHDL_FILE        ../hdl/de10_nano_top.vhd
 
 # QIP only — NOT QSYS_FILE. Using QIP prevents Quartus from extracting
 # unpatched DDR3 IP files from its installation into db/ip/.
-set_global_assignment -name QIP_FILE ../qsys/hps_system/synthesis/hps_system.qip
+set_global_assignment -name QIP_FILE         ../qsys/hps_system/synthesis/hps_system.qip
 
 source de10_nano_pin_assignments.tcl
 project_close
@@ -406,36 +409,34 @@ project_close
 
 ### 3.2 Port names and pin assignments
 
-Because `hps_system` is the top-level entity, the pin assignments use the Platform Designer-generated port names. These are different from the port names you would use on a hand-written VHDL top-level:
+The VHDL top-level wrapper (`hdl/de10_nano_top.vhd`) exposes clean board-level port names. Pin assignments reference these wrapper ports:
 
-| Physical signal | Platform Designer port name | Pin |
+| Physical signal | VHDL top-level port | Pin |
 |---|---|---|
-| 50 MHz oscillator | `clk_clk` | V11 |
-| KEY[0] push-button | `reset_reset_n` | AH17 |
-| LED0 | `led_external_connection_export[0]` | W15 |
-| LED1 | `led_external_connection_export[1]` | AA24 |
-| LED2 | `led_external_connection_export[2]` | V16 |
-| LED3 | `led_external_connection_export[3]` | V15 |
-| LED4 | `led_external_connection_export[4]` | AF26 |
-| LED5 | `led_external_connection_export[5]` | AE26 |
-| LED6 | `led_external_connection_export[6]` | Y16 |
-| LED7 | `led_external_connection_export[7]` | AA23 |
+| 50 MHz oscillator | `fpga_clk1_50` | V11 |
+| KEY[0] push-button | `key[0]` | AH17 |
+| LED0 | `led[0]` | W15 |
+| LED1 | `led[1]` | AA24 |
+| LED2 | `led[2]` | V16 |
+| LED3 | `led[3]` | V15 |
+| LED4 | `led[4]` | AF26 |
+| LED5 | `led[5]` | AE26 |
+| LED6 | `led[6]` | Y16 |
+| LED7 | `led[7]` | AA23 |
 
 The DDR3 pins (`memory_mem_*`) are constrained automatically by Quartus from the HPS component parameters — no explicit `set_location_assignment` is needed or allowed for hard-IP pins.
 
 ### 3.3 Timing constraints
 
-`de10_nano.sdc` uses the Platform Designer clock port name:
+`de10_nano.sdc` references the VHDL wrapper clock port name:
 
 ```tcl
-# Clock port name matches the exported clk_0.clk_in interface: clk_clk
-create_clock -period "50.0 MHz" [get_ports clk_clk]
+# Port name is fpga_clk1_50 — the VHDL top-level wrapper port.
+create_clock -name {FPGA_CLK1_50} -period 20.000 [get_ports {fpga_clk1_50}]
 
 derive_pll_clocks
 derive_clock_uncertainty
 ```
-
-Note: in Phase 2 the clock port was named `fpga_clk1_50` (the VHDL top-level port name). Here it is `clk_clk` (the Platform Designer export name). Getting this wrong causes the Timing Analyzer to report unconstrained clocks and may result in false hold violations.
 
 Create the project:
 

@@ -8,8 +8,8 @@
 #   output_files/hps_sdram_p0.sdc (auto-included by the flow).
 
 # Primary FPGA clock (50 MHz oscillator on PIN_V11)
-# Port name is clk_clk when hps_system is the Quartus top-level entity.
-create_clock -name {FPGA_CLK1_50} -period 20.000 [get_ports {clk_clk}]
+# Port name is fpga_clk1_50 — the VHDL top-level wrapper port.
+create_clock -name {FPGA_CLK1_50} -period 20.000 [get_ports {fpga_clk1_50}]
 
 # Derive PLL-generated clocks (HPS internal PLLs and any FPGA PLLs)
 derive_pll_clocks
