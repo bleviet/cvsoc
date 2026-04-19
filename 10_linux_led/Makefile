@@ -87,7 +87,12 @@ buildroot-config: $(BUILDROOT_DIR)/Makefile
 	PATH="$(CLEAN_PATH)" $(MAKE) -C $(BUILDROOT_DIR) BR2_EXTERNAL=$(BR2_EXTERNAL_DIR) de10_nano_defconfig
 
 # ── Buildroot full build ──────────────────────────────────────────────────────
+# Force-clean local packages so source changes are always picked up.
+# Buildroot's local site method caches package sources by VERSION, so
+# unchanged versions silently skip re-extraction.
 buildroot: buildroot-config
+	PATH="$(CLEAN_PATH)" $(MAKE) -C $(BUILDROOT_DIR) \
+		fpga-led-dirclean fpga-mgr-load-dirclean
 	PATH="$(CLEAN_PATH)" $(MAKE) -C $(BUILDROOT_DIR)
 	@echo ""
 	@echo "═══════════════════════════════════════════════════════════════════"

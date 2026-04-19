@@ -16,17 +16,13 @@ start() {
         return 1
     fi
 
-    # Load the fpga_load kernel module (programs FPGA + enables bridges)
-    if [ -f "/lib/modules/$(uname -r)/fpga_load.ko" ]; then
-        insmod "/lib/modules/$(uname -r)/fpga_load.ko" firmware="${FIRMWARE}"
-        ret=$?
-    else
-        echo "FAILED (fpga_load.ko not found)"
-        return 1
-    fi
+    # Load the fpga_load kernel module (programs FPGA + enables bridges).
+    # Use modprobe so it picks the correct copy from updates/ (depmod order).
+    modprobe fpga_load firmware="${FIRMWARE}"
+    ret=$?
 
     if [ $ret -ne 0 ]; then
-        echo "FAILED (insmod returned $ret)"
+        echo "FAILED (modprobe returned $ret)"
         dmesg | grep fpga_load | tail -5
         return 1
     fi
