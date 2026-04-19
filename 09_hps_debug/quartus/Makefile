@@ -220,7 +220,7 @@ gdb: $(APP_DIR)/hps_debug.elf
 # quartus-gui: Opens Quartus Prime with the project loaded.
 #   Run 'make project' first if de10_nano.qpf does not yet exist.
 quartus-gui:
-	$(DOCKER_GUI) "$(DOCKER_CWD) && quartus $(REVISION_NAME).qpf 2>/dev/null || quartus"
+	$(DOCKER_GUI) "$(DOCKER_CWD) && quartus $(PROJECT_NAME).qpf 2>/dev/null || quartus"
 
 # platform-designer: Opens Platform Designer with the .qsys system file.
 #   Run 'make $(QSYS_FILE)' first if the .qsys file does not yet exist.

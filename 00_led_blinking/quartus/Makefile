@@ -106,7 +106,7 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 
 # quartus-gui: Opens Quartus Prime with the project loaded.
 quartus-gui:
-	$(DOCKER_GUI) "$(DOCKER_CWD) && quartus $(REVISION_NAME).qpf 2>/dev/null || quartus"
+	$(DOCKER_GUI) "$(DOCKER_CWD) && quartus $(PROJECT_NAME).qpf 2>/dev/null || quartus"
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 FILE_ENDINGS_FOR_REMOVAL = .rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt
