@@ -79,6 +79,12 @@ set_instance_parameter_value hps_0 LWH2F_Enable          {true}
 set_instance_parameter_value hps_0 F2S_Width             {0}
 set_instance_parameter_value hps_0 S2F_Width             {0}
 
+# Disable MPU standby/event conduit: not used in this design.
+# When enabled (default=true) Quartus 23.1 altera_hps generates a Warning
+# "hps_0.h2f_mpu_events must be exported, or connected to a matching conduit."
+# because the conduit is left dangling.  Setting it false suppresses that warning.
+set_instance_parameter_value hps_0 MPU_EVENTS_Enable     {false}
+
 # ── FPGA fabric clock (50 MHz from FPGA_CLK1_50 top-level port) ──────────
 # This clock_source component represents an external clock input to the
 # Platform Designer system.  The VHDL top-level connects FPGA_CLK1_50 here.

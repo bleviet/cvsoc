@@ -91,6 +91,12 @@ set_instance_parameter_value hps_0 S2F_Width             {0}
 # Enable FPGA-to-HPS interrupt lines (exposes f2h_irq0 and f2h_irq1 interfaces)
 set_instance_parameter_value hps_0 F2SINTERRUPT_Enable   {1}
 
+# Disable MPU standby/event conduit: not used in this design.
+# When enabled (default=true) Quartus 23.1 altera_hps generates a Warning
+# "hps_0.h2f_mpu_events must be exported, or connected to a matching conduit."
+# because the conduit is left dangling.  Setting it false suppresses that warning.
+set_instance_parameter_value hps_0 MPU_EVENTS_Enable     {false}
+
 # ── FPGA fabric clock (50 MHz from FPGA_CLK1_50 top-level port) ──────────
 add_instance clk_0 clock_source
 set_instance_parameter_value clk_0 clockFrequency      {50000000}
