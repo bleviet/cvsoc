@@ -1,0 +1,51 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "openocd: Start HPS GDB server",
+            "type": "shell",
+            "command": "make openocd",
+            "options": {
+                "cwd": "${workspaceFolder}/09_hps_debug/quartus"
+            },
+            "isBackground": true,
+            "runOptions": { "instanceLimit": 1 },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": {
+                "pattern": { "regexp": "^$" },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".",
+                    "endsPattern": "Listening on port 3333"
+                }
+            }
+        },
+        {
+            "label": "gdb-server: Start Nios II GDB server",
+            "type": "shell",
+            "command": "make gdb-server",
+            "options": {
+                "cwd": "${workspaceFolder}/08_nios2_debug/quartus"
+            },
+            "isBackground": true,
+            "runOptions": { "instanceLimit": 1 },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": {
+                "pattern": { "regexp": "^$" },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".",
+                    "endsPattern": "Waiting for connection"
+                }
+            }
+        }
+    ]
+}

@@ -61,9 +61,9 @@ cd 08_nios2_debug/quartus && make program-sof
 
 ---
 
-## Step 2 — Start the GDB server
+## Step 2 — Start the GDB server (optional)
 
-Open a terminal and leave it running. The server must be up before VS Code connects.
+> **TIP:** Steps 2 and 3 can be combined — pressing **F5** in VS Code automatically starts the GDB server as a background task and waits for it to be ready before connecting the GDB client. You only need to run this step manually if you want to verify the server is working before launching the debugger.
 
 **Project 09 — HPS ARM (OpenOCD):**
 ```bash
@@ -95,7 +95,7 @@ Wait until the server prints that it is listening on port 2345.
 
 4. Click the green **Play** button (or press `F5`).
 
-VS Code spawns the wrapper, which starts a Docker container running the GDB client. The client connects to the GDB server, loads the `.elf` into target memory, and halts at the first breakpoint (`main` for HPS, `set_led` for Nios II).
+VS Code automatically runs the `preLaunchTask` defined in `.vscode/tasks.json`, which starts `make openocd` or `make gdb-server` in a dedicated terminal panel and waits for the "Listening on port" message before connecting. Once the server is ready, VS Code spawns the GDB wrapper, connects to the server, loads the `.elf` into target memory, and halts at the first breakpoint (`main` for HPS, `set_led` for Nios II).
 
 ---
 
