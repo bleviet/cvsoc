@@ -11,8 +11,8 @@
 By the end of this tutorial you will boot a complete embedded Linux system on the DE10-Nano's ARM Cortex-A9 processor and control the FPGA LEDs from user-space applications:
 
 - **Buildroot** builds a self-contained Linux system: cross-compiler, Linux 6.6 kernel, U-Boot bootloader, and root filesystem — all from a single `make` command
-- A **device tree node** binds the LED PIO peripheral to the Linux **UIO (Userspace I/O)** driver framework
-- A **C application** (`fpga_led`) maps `/dev/uio0` into user space and writes LED patterns through `mmap()`
+- A **kernel module** (`fpga_load.ko`) programs the FPGA at boot via direct register access and enables the Lightweight HPS-to-FPGA bridge
+- A **C application** (`fpga_led`) maps `/dev/mem` into user space and writes LED patterns through `mmap()`
 - A **Python script** (`fpga_led.py`) demonstrates the same register access using Python's `mmap` module
 - A **genimage** configuration produces a ready-to-flash SD card image containing the U-Boot SPL, kernel, device tree, FPGA bitstream, and root filesystem
 
@@ -21,10 +21,10 @@ By the end of this tutorial you will boot a complete embedded Linux system on th
            ┌─────────────────────────────────────────────────────────────────┐
  Partition │ 1: type 0xA2    │ 2: FAT32 (boot)    │ 3: ext4 (rootfs)       │
            │ U-Boot SPL      │ zImage              │ /usr/bin/fpga_led      │
-           │ (preloader)     │ DTB (with UIO node) │ /usr/bin/fpga_led.py   │
-           │                 │ u-boot.img          │ /lib/ /etc/ /bin/ ...  │
-           │                 │ de10_nano.rbf        │                        │
-           │                 │ extlinux.conf        │                        │
+           │ (preloader)     │ DTB                 │ /usr/bin/fpga_led.py   │
+           │                 │ u-boot.img          │ /lib/firmware/de10*.rbf│
+           │                 │ de10_nano.rbf        │ /lib/modules/.../      │
+           │                 │ extlinux.conf        │   fpga_load.ko         │
            └─────────────────────────────────────────────────────────────────┘
 
            Boot sequence
@@ -38,12 +38,11 @@ By the end of this tutorial you will boot a complete embedded Linux system on th
            ┌─────────────────────────────────────────────────────────────────┐
            │                     Linux kernel                                │
            │                                                                 │
-           │  DTB contains:  base_fpga_region / led-controller@ff200000     │
-           │                 compatible = "generic-uio"                      │
+           │  Init script S30fpga_load:                                      │
+           │    insmod fpga_load.ko → programs FPGA + enables LW bridge     │
            │                          │                                      │
-           │                 UIO driver creates /dev/uio0                    │
-           │                          │                                      │
-           │  User space:    fpga_led ──► mmap(/dev/uio0) ──► LED PIO regs  │
+           │  User space:    fpga_led ──► mmap(/dev/mem) ──► LED PIO regs   │
+           │                                   @ 0xFF200000                  │
            └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -93,11 +92,11 @@ Linux changes the game:
 
 | Aspect | Bare-metal (Phase 3) | Linux (Phase 6) |
 |--------|---------------------|-----------------|
-| **Memory access** | Direct physical address (`*(volatile uint32_t *)0xFF200000`) | Via `mmap()` on `/dev/uio0` or `/dev/mem` |
-| **Peripheral init** | Manual bridge release, watchdog disable | Kernel + device tree handle it |
+| **Memory access** | Direct physical address (`*(volatile uint32_t *)0xFF200000`) | Via `mmap()` on `/dev/mem` at `0xFF200000` |
+| **Peripheral init** | Manual bridge release, watchdog disable | Kernel module `fpga_load.ko` handles it at boot |
 | **Build system** | Cross-compiler + linker script | Buildroot (builds entire OS) |
 | **Boot** | U-Boot SPL → bare-metal ELF in OCRAM | U-Boot SPL → U-Boot → Linux kernel → init → shell |
-| **User interaction** | JTAG debugger | Serial console + SSH |
+| **User interaction** | JTAG debugger | Serial console (+ SSH if Ethernet connected) |
 
 ### Buildroot
 
@@ -111,30 +110,38 @@ Linux changes the game:
 
 Buildroot supports an **external tree** (`BR2_EXTERNAL`) that keeps all board-specific files outside the Buildroot source tree. This project uses an external tree in `br2-external/` to hold the defconfig, board scripts, kernel config fragments, and the `fpga-led` package.
 
-### UIO — Userspace I/O
+### FPGA programming from Linux
 
-The Linux UIO framework provides a minimal kernel driver that:
+Unlike bare-metal where the FPGA is typically pre-programmed via JTAG, a Linux system can program the FPGA dynamically at boot time. The Cyclone V FPGA Manager is a hardware block with memory-mapped registers at `0xFF706000` that controls the FPGA configuration process.
 
-1. Exposes a character device (`/dev/uioN`)
-2. Allows user-space code to `mmap()` hardware registers directly
-3. Optionally handles interrupts (not used in this project)
+This project uses a **custom kernel module** (`fpga_load.ko`) that:
 
-This avoids writing a full kernel module. The device tree tells the kernel which physical address range to expose:
+1. Maps the FPGA Manager registers via `ioremap()`
+2. Puts the FPGA into configuration mode (reset → config state)
+3. Writes the compressed bitstream to the FPGA data port (`0xFFB90000`)
+4. Polls for CONF_DONE assertion (configuration complete)
+5. Waits for USER_MODE (FPGA fully operational)
+6. Enables the LW HPS-to-FPGA bridge (reset cycle + L3 remap)
 
-```dts
-led-controller@ff200000 {
-    compatible = "generic-uio";
-    reg = <0xff200000 0x10>;
-};
+> **Why not use the kernel's `fpga_mgr` API?** The mainline FPGA Manager driver uses a 10ms IRQ-based timeout for CONF_DONE that is too short in practice and causes spurious failures. Direct register access with a 5-second polling loop is more reliable for initial bring-up.
+
+### User-space register access via `/dev/mem`
+
+Once the FPGA is programmed and the bridge is enabled, user-space code accesses hardware registers through `/dev/mem`:
+
+```c
+int fd = open("/dev/mem", O_RDWR | O_SYNC);
+volatile uint32_t *base = mmap(NULL, 0x1000,
+    PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0xFF200000);
+
+// Write to the LED PIO DATA register (offset 0x00)
+*base = 0xAA;  // alternating LEDs on
+
+munmap(base, 0x1000);
+close(fd);
 ```
 
-The UIO driver matches on `compatible = "generic-uio"`, maps the 16-byte register region, and creates `/dev/uio0`. User-space code then opens this device and calls `mmap()` to get a virtual pointer to the LED PIO registers.
-
-### Device tree: how the kernel learns about hardware
-
-The ARM kernel does not probe buses to discover peripherals (unlike x86 PCI). Instead, a **device tree blob (DTB)** describes every device, its address range, compatible driver, and interrupt lines.
-
-For the DE10-Nano, the upstream kernel ships `socfpga_cyclone5_de0_nano_soc.dtb`. This DTB describes the HPS peripherals (UART, Ethernet, GPIO, etc.) but knows nothing about what is in the FPGA fabric. The build system adds a `led-controller` node inside the `base_fpga_region` to describe the LED PIO and bind it to the UIO driver.
+This is equivalent to the bare-metal `*(volatile uint32_t *)0xFF200000 = 0xAA`, but goes through the kernel's memory management — the physical address is translated via the page table set up by `mmap()`.
 
 ### SD card partition layout
 
@@ -148,6 +155,12 @@ The Cyclone V BootROM expects a specific SD card layout:
 
 The BootROM scans the MBR partition table for a type-`0xA2` entry and reads the U-Boot SPL (Second Program Loader) from it. The SPL initialises DDR3 SDRAM and loads the full U-Boot from the FAT32 partition. U-Boot then uses its `distro boot` mechanism to find `extlinux/extlinux.conf`, which tells it which kernel and DTB to load.
 
+### Compressed RBF and MSEL switches
+
+The DE10-Nano's MSEL DIP switches are factory-set to `0x0A` (Fast Passive Parallel ×32 with Decompression). This means the FPGA's hardware decompression engine is **always active** and expects a **compressed** bitstream. An uncompressed RBF will cause CONF_DONE to never assert — the decompression engine cannot parse raw configuration data.
+
+The conversion script uses `quartus_cpf -c --option=bitstream_compression=on` to produce a compressed RBF (~1.9 MB instead of ~7 MB uncompressed).
+
 ---
 
 ## Project structure
@@ -156,7 +169,7 @@ The BootROM scans the MBR partition table for a type-`0xA2` entry and reads the 
 10_linux_led/
 ├── Makefile                          ← Top-level orchestration
 ├── .gitignore
-├── de10_nano.rbf                     ← FPGA bitstream (generated)
+├── de10_nano.rbf                     ← Compressed FPGA bitstream (generated)
 ├── br2-external/                     ← Buildroot external tree
 │   ├── external.desc                 ← BR2_EXTERNAL descriptor
 │   ├── external.mk                   ← Package makefile includes
@@ -165,23 +178,33 @@ The BootROM scans the MBR partition table for a type-`0xA2` entry and reads the 
 │   │   └── de10_nano_defconfig       ← Master Buildroot configuration
 │   ├── board/de10_nano/
 │   │   ├── genimage.cfg              ← SD card partition layout
-│   │   ├── linux-uio.fragment        ← Kernel config: UIO + FPGA Manager
+│   │   ├── linux-uio.fragment        ← Kernel config: FPGA Manager + UIO
 │   │   ├── extlinux.conf             ← U-Boot distro boot config
-│   │   ├── post-build.sh             ← Copies Python script to rootfs
-│   │   ├── post-image.sh             ← Compiles DT overlay, merges DTB, copies RBF
+│   │   ├── S30fpga_load              ← Init script: loads fpga_load.ko at boot
+│   │   ├── uboot.fragment            ← U-Boot config: enable bootcmd
+│   │   ├── post-build.sh             ← Copies scripts/firmware to rootfs
+│   │   ├── post-image.sh             ← Generates SD card image
 │   │   └── uboot-env.txt             ← Reference U-Boot environment
-│   └── package/fpga-led/
-│       ├── Config.in                 ← Buildroot package: fpga-led
-│       └── fpga-led.mk              ← generic-package makefile
+│   └── package/
+│       ├── fpga-led/
+│       │   ├── Config.in             ← Buildroot package: fpga-led app
+│       │   └── fpga-led.mk           ← generic-package makefile
+│       └── fpga-mgr-load/
+│           ├── Config.in             ← Buildroot package: fpga_load.ko module
+│           └── fpga-mgr-load.mk      ← kernel-module makefile
 ├── dts/
-│   └── fpga_led_overlay.dts          ← Device tree overlay source
+│   └── fpga_led_overlay.dts          ← Device tree overlay source (reference)
 ├── software/
 │   ├── fpga_led/
-│   │   ├── fpga_led.c                ← C LED controller (UIO + mmap)
+│   │   ├── fpga_led.c                ← C LED controller (/dev/mem mmap)
 │   │   └── Makefile                  ← Cross-compile Makefile
-│   └── fpga_led.py                   ← Python LED controller (UIO or /dev/mem)
+│   ├── fpga_load/
+│   │   ├── fpga_load.c               ← Kernel module: FPGA programming + bridge
+│   │   ├── Makefile                  ← Kernel module build
+│   │   └── Kbuild                    ← Kernel build system integration
+│   └── fpga_led.py                   ← Python LED controller (/dev/mem)
 └── scripts/
-    └── convert_sof_to_rbf.sh         ← SOF → RBF conversion (runs in Docker)
+    └── convert_sof_to_rbf.sh         ← SOF → compressed RBF (runs in Docker)
 ```
 
 ---
@@ -195,11 +218,9 @@ cd 10_linux_led
 make rbf
 ```
 
-This runs `quartus_cpf` inside the Docker container to produce `de10_nano.rbf` (~7 MB).
+This runs `quartus_cpf` inside the Docker container to produce `de10_nano.rbf` (~1.9 MB compressed).
 
-> **What happens:** The script `scripts/convert_sof_to_rbf.sh` calls  
-> `quartus_cpf -c --option=bitstream_compression=off de10_nano.sof de10_nano.rbf`  
-> inside the `raetro/quartus:23.1` container. Compression is disabled because the FPGA Manager expects an uncompressed passive-serial bitstream.
+> **Critical: compression must be enabled.** The DE10-Nano's MSEL switches are set to `0x0A` (PP32 Fast with Decompression). The FPGA hardware decompression engine is active and **requires** a compressed bitstream. The script uses `quartus_cpf -c --option=bitstream_compression=on` — if you pass an uncompressed RBF, CONF_DONE will never assert and FPGA programming will time out.
 
 ---
 
@@ -223,16 +244,16 @@ This single command:
 
 1. Applies the `de10_nano_defconfig` (with `BR2_EXTERNAL` pointing to `br2-external/`)
 2. Downloads and builds the ARM cross-compiler (GCC + glibc)
-3. Downloads and builds Linux 6.6.86 with the `socfpga` defconfig plus UIO/FPGA kernel config fragment
-4. Downloads and builds U-Boot 2024.07 with the `socfpga_de10_nano` defconfig
-5. Builds the root filesystem with BusyBox, Python 3, and the `fpga_led` package
-6. Runs `post-build.sh` to install `fpga_led.py` into the rootfs
-7. Runs `post-image.sh` to compile the device tree overlay, merge the UIO node into the base DTB, and copy the FPGA bitstream
-8. Runs `genimage` to assemble the final SD card image
+3. Downloads and builds Linux 6.6.86 with the `socfpga` defconfig plus FPGA Manager kernel config fragment
+4. Downloads and builds U-Boot 2024.07 with the `socfpga_de10_nano` defconfig plus bootcommand fragment
+5. Builds the `fpga_load.ko` kernel module (FPGA programmer + bridge enable)
+6. Builds the root filesystem with BusyBox, Python 3, and the `fpga_led` application
+7. Runs `post-build.sh` to install init scripts, firmware, and Python scripts into the rootfs
+8. Runs `post-image.sh` and `genimage` to assemble the final SD card image
 
 > **First build time:** approximately 15–30 minutes depending on your machine and internet speed. Subsequent builds that only change user-space code take under a minute.
 
-> **WSL2 note:** If your `PATH` contains Windows paths with spaces (common on WSL2), Buildroot will refuse to build. The Makefile handles this, but if you run `make` inside the Buildroot directory directly, sanitise your PATH first:
+> **WSL2 note:** If your `PATH` contains Windows paths with spaces (common on WSL2), Buildroot will refuse to build. Sanitise your PATH before building:
 > ```bash
 > export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v ' ' | tr '\n' ':' | sed 's/:$//')
 > ```
@@ -249,11 +270,10 @@ ls -lh buildroot-2024.11.1/output/images/
 |------|------|-------------|
 | `sdcard.img` | ~194 MB | Complete SD card image (flash this) |
 | `zImage` | ~6 MB | Compressed Linux kernel |
-| `socfpga_cyclone5_de0_nano_soc.dtb` | ~20 KB | Device tree blob (with UIO node merged) |
+| `socfpga_cyclone5_de0_nano_soc.dtb` | ~20 KB | Device tree blob |
 | `u-boot-with-spl.sfp` | ~758 KB | U-Boot SPL + full U-Boot |
 | `rootfs.ext4` | 128 MB | Root filesystem |
-| `fpga_led_overlay.dtbo` | ~500 B | Compiled device tree overlay |
-| `de10_nano.rbf` | ~7 MB | FPGA bitstream (copied from project root) |
+| `de10_nano.rbf` | ~1.9 MB | Compressed FPGA bitstream |
 
 ---
 
@@ -294,11 +314,20 @@ sudo dd if=buildroot-2024.11.1/output/images/sdcard.img of=/dev/sdX bs=4M status
    - Pin 9 (UART0_RX) → adapter TX
 3. Open a serial terminal at **115200 baud, 8N1**:
    ```bash
-   picocom -b 115200 /dev/ttyUSB0
+   picocom -b 115200 --noreset --noinit /dev/ttyUSB0
    # Or: screen /dev/ttyUSB0 115200
    # Or: minicom -D /dev/ttyUSB0 -b 115200
    ```
 4. Power on the board (12V barrel connector)
+
+> **WSL2 UART tip:** Under WSL2, USB serial devices are not natively visible. Use `usbipd` to attach the USB-UART adapter to WSL2:
+> ```powershell
+> # In PowerShell (admin):
+> usbipd list              # find the USB Serial Device
+> usbipd bind --busid X-Y  # first time only
+> usbipd attach --wsl --busid X-Y
+> ```
+> Then `/dev/ttyUSB0` will appear in WSL2.
 
 ### 4.2 Expected boot output
 
@@ -308,8 +337,12 @@ You should see U-Boot SPL messages, then U-Boot proper, then the Linux kernel:
 U-Boot SPL 2024.07 (...)
 Trying to boot from MMC1
 
+
 U-Boot 2024.07 (...)
-=> ...
+socfpga_de10_nano - Pair HPS with FPGA
+
+Hit any key to stop autoboot:  0
+...
 Scanning mmc 0:2...
 Found /extlinux/extlinux.conf
 ...
@@ -319,9 +352,14 @@ Retrieving file: /socfpga_cyclone5_de0_nano_soc.dtb
 Starting kernel ...
 
 [    0.000000] Booting Linux on physical CPU 0x0
-[    0.000000] Linux version 6.6.86 ...
+[    0.000000] Linux version 6.6.86 (buildroot@host) ...
 ...
-[    1.234567] uio_pdrv_genirq ff200000.led-controller: UIO device registered
+Starting FPGA programming...
+fpga_load: MSEL=0x0A STAT=0x... GPIO=0x...
+fpga_load: CONF_DONE! gpio=0x00000F07 at i=0
+fpga_load: FPGA programmed successfully!
+fpga_load: LW H2F bridge enabled
+OK
 ...
 Welcome to DE10-Nano (cvsoc Phase 6 — Embedded Linux)
 de10nano login:
@@ -329,61 +367,36 @@ de10nano login:
 
 Log in as `root` (no password).
 
-> **Key line to look for:** `uio_pdrv_genirq ff200000.led-controller: UIO device registered` — this confirms the device tree node was found and the UIO driver created `/dev/uio0`.
+> **Key lines to look for:**
+> - `fpga_load: CONF_DONE!` — FPGA programmed successfully
+> - `fpga_load: LW H2F bridge enabled` — bridge is up, registers accessible
+> - If you see `TIMEOUT - CONF_DONE never asserted`, see [Troubleshooting](#troubleshooting)
 
 ---
 
-## Step 5 — Load the FPGA bitstream
+## Step 5 — Control the LEDs
 
-Before controlling the LEDs, the FPGA must be programmed with the LED PIO design. Linux provides the FPGA Manager framework for this:
-
-```bash
-# Copy the RBF from the boot partition
-mkdir -p /lib/firmware
-mount /dev/mmcblk0p2 /mnt
-cp /mnt/de10_nano.rbf /lib/firmware/
-umount /mnt
-
-# Load the bitstream
-echo 0 > /sys/class/fpga_manager/fpga0/flags
-echo de10_nano.rbf > /sys/class/fpga_manager/fpga0/firmware
-```
-
-If the FPGA Manager sysfs interface is not available (depends on kernel version and config), you can also load the bitstream from U-Boot before booting Linux, or program via JTAG from the host.
-
----
-
-## Step 6 — Control the LEDs
-
-### 6.1 Verify UIO is working
-
-```bash
-ls -la /dev/uio0
-# Expected: crw------- 1 root root 243, 0 ... /dev/uio0
-
-cat /sys/class/uio/uio0/name
-# Expected: ff200000.led-controller
-
-cat /sys/class/uio/uio0/maps/map0/size
-# Expected: 0x00001000 (4096 — one page)
-```
-
-### 6.2 Quick test with devmem
+### 5.1 Quick test with devmem
 
 BusyBox provides `devmem` for direct register access (useful for quick checks):
 
 ```bash
 # Read current LED value
 devmem 0xFF200000
+# Expected: 0x00000000
 
 # Set all LEDs on
 devmem 0xFF200000 32 0xFF
+# All 8 LEDs light up!
 
 # Set alternating pattern
 devmem 0xFF200000 32 0xAA
+
+# Turn LEDs off
+devmem 0xFF200000 32 0x00
 ```
 
-### 6.3 Run the C application
+### 5.2 Run the C application
 
 ```bash
 # Cycle through all LED patterns (Ctrl+C to stop)
@@ -400,6 +413,17 @@ fpga_led --pattern breathe --speed 50
 fpga_led --help
 ```
 
+Example output:
+
+```
+# fpga_led --pattern chase
+FPGA LED controller — /dev/mem @ 0xFF200000
+Current LED value: 0x00
+Running pattern: chase (speed: 100 ms, Ctrl+C to stop)
+^C
+LEDs turned off. Goodbye.
+```
+
 Available patterns:
 
 | Pattern | Description |
@@ -410,24 +434,24 @@ Available patterns:
 | `stripes` | Alternating 0xAA / 0x55 pattern |
 | `all` | Cycle through all patterns (default) |
 
-### 6.4 Run the Python script
+### 5.3 Run the Python script
 
 ```bash
-# Using UIO (default)
+# Run a pattern
 fpga_led.py --pattern chase
 
-# Using /dev/mem (requires root, works even without UIO)
-fpga_led.py --devmem --value 0x55
+# Set a specific value
+fpga_led.py --value 0x55
 
-# Set speed (in seconds)
+# Adjust speed (in seconds)
 fpga_led.py --pattern breathe --speed 0.05
 ```
 
 ---
 
-## Step 7 — Iterate on the application
+## Step 6 — Iterate on the application
 
-One of the advantages of Linux is rapid iteration. You can recompile the C application on the host and copy it to the running board over the network:
+One of the advantages of Linux is rapid iteration. You can recompile the C application on the host and copy it to the running board:
 
 ```bash
 # On the host: cross-compile using Buildroot's toolchain
@@ -436,52 +460,71 @@ make app-cross ARM_CC=buildroot-2024.11.1/output/host/bin/arm-linux-gnueabihf-gc
 # Copy to the board (if Ethernet is connected)
 scp software/fpga_led/fpga_led root@<board-ip>:/usr/bin/
 
+# Or: transfer via UART using base64
+cat software/fpga_led/fpga_led | base64 > /tmp/fpga_led.b64
+# On target: base64 -d /tmp/fpga_led.b64 > /usr/bin/fpga_led && chmod +x /usr/bin/fpga_led
+
 # Or: rebuild the entire image and re-flash
 make buildroot
 ```
 
-For the Python script, simply edit `software/fpga_led.py` on the host and `scp` it to the board — no compilation needed.
+For the Python script, simply edit `software/fpga_led.py` on the host and copy it to the board — no compilation needed.
 
 ---
 
 ## Understanding the key files
 
-### Device tree overlay (`dts/fpga_led_overlay.dts`)
+### FPGA programming module (`software/fpga_load/fpga_load.c`)
 
-```dts
-/dts-v1/;
-/plugin/;
+This kernel module is the heart of FPGA initialization. It performs the complete FPGA Manager programming sequence via direct register access:
 
-&base_fpga_region {
-    #address-cells = <0x1>;
-    #size-cells = <0x1>;
-
-    fpga_led: led-controller@ff200000 {
-        compatible = "generic-uio";
-        reg = <0xff200000 0x10>;
-        status = "okay";
-    };
-};
+```c
+/* Physical base addresses */
+#define FPGAMGR_PHYS  0xFF706000   // FPGA Manager control registers
+#define FPGADAT_PHYS  0xFFB90000   // FPGA configuration data port
+#define RSTMGR_BRGMODRST 0xFFD0501C  // Bridge reset register
+#define L3_REMAP      0xFF800000   // L3 GPV remap register
 ```
 
-This overlay targets the `base_fpga_region` node in the Cyclone V device tree. It declares a 16-byte register region at the LW H2F bridge base address (`0xFF200000`) and binds it to the `generic-uio` driver.
+The programming sequence:
 
-> **Build-time merge:** The mainline kernel DTB does not include DT symbols (`__symbols__`), which are required for runtime overlay application. The `post-image.sh` script works around this by decompiling the base DTB, injecting the UIO node via `sed`, and recompiling. The overlay source is kept as a `.dts` file for documentation and potential future use with runtime overlay mechanisms.
+1. **Set CDRATIO and CFGWDTH** — For MSEL=0x0A: CDRATIO=X8, CFGWDTH=32
+2. **Reset the FPGA** — Assert NCFGPULL, wait for RESET state
+3. **Enter CONFIG** — Release NCFGPULL, wait for CONFIG state
+4. **Clear EOI** — Write `0xFFF` to GPIO_PORTA_EOI to clear pending interrupts
+5. **Enable AXICFGEN** — Opens the AXI data path to the FPGA
+6. **Write bitstream** — 32-bit `writel()` loop to the data port
+7. **Poll CONF_DONE** — 5-second loop checking GPIO_EXT bit 1 (AXICFGEN must remain set!)
+8. **Finalize** — Clear AXICFGEN, send DCLK pulses, wait for USER_MODE
+9. **Enable bridges** — Cycle RSTMGR_BRGMODRST, then set L3_REMAP bits
 
-### Kernel config fragment (`board/de10_nano/linux-uio.fragment`)
+### Init script (`board/de10_nano/S30fpga_load`)
 
+```sh
+#!/bin/sh
+# Loads the kernel module which programs the FPGA and enables bridges
+insmod "/lib/modules/$(uname -r)/fpga_load.ko" firmware="de10_nano.rbf"
 ```
-CONFIG_UIO=y
-CONFIG_UIO_PDRV_GENIRQ=y
-CONFIG_FPGA=y
-CONFIG_FPGA_MGR_SOCFPGA=y
-CONFIG_FPGA_BRIDGE=y
-CONFIG_FPGA_REGION=y
-CONFIG_OF_FPGA_REGION=y
-CONFIG_OF_OVERLAY=y
+
+This runs at boot (BusyBox init, priority 30 — after modules are loaded). The `firmware=` parameter tells the module which RBF file to load from `/lib/firmware/`.
+
+### C application (`software/fpga_led/fpga_led.c`)
+
+The core of the user-space application:
+
+```c
+#define LWH2F_BASE  0xFF200000
+#define MAP_SIZE    0x1000
+
+int fd = open("/dev/mem", O_RDWR | O_SYNC);
+volatile uint32_t *base = mmap(NULL, MAP_SIZE,
+    PROT_READ | PROT_WRITE, MAP_SHARED, fd, LWH2F_BASE);
+
+// Write to the LED PIO DATA register (offset 0x00)
+*base = 0xFF;  // all LEDs on
 ```
 
-This fragment is applied on top of the `socfpga_defconfig` to enable UIO and FPGA Manager support. Without it, the kernel would not have the `uio_pdrv_genirq` driver and would ignore the `compatible = "generic-uio"` node.
+`mmap()` on `/dev/mem` maps the physical Lightweight HPS-to-FPGA bridge region into the process's virtual address space. Writes to the mapped memory go directly to the FPGA fabric — no kernel transition, no ioctl, just a store instruction.
 
 ### SD card layout (`board/de10_nano/genimage.cfg`)
 
@@ -495,33 +538,109 @@ The `genimage.cfg` file defines three partitions:
 
 The external tree keeps all DE10-Nano customisations outside the Buildroot source:
 
-- `external.desc` — declares the external tree name (`DE10_NANO`)
+- `external.desc` — declares the external tree name (`CVSOC`)
 - `configs/de10_nano_defconfig` — the master configuration (architecture, toolchain, kernel, U-Boot, packages)
-- `board/de10_nano/` — board-specific scripts and config fragments
+- `board/de10_nano/` — board-specific scripts, config fragments, and init scripts
 - `package/fpga-led/` — Buildroot package definition for the C application
+- `package/fpga-mgr-load/` — Buildroot package definition for the kernel module
 
-### C application (`software/fpga_led/fpga_led.c`)
+### U-Boot configuration (`board/de10_nano/uboot.fragment`)
 
-The core of the application is straightforward:
-
-```c
-int fd = open("/dev/uio0", O_RDWR | O_SYNC);
-
-volatile uint32_t *base = mmap(NULL, 0x1000,
-    PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-// Write to the LED PIO DATA register (offset 0x00)
-*(base + 0) = 0xAA;  // alternating LEDs on
-
-munmap(base, 0x1000);
-close(fd);
+```
+CONFIG_USE_BOOTCOMMAND=y
+CONFIG_BOOTCOMMAND="run distro_bootcmd"
 ```
 
-`mmap()` on a UIO device maps the physical register region into the process's virtual address space. Writes to the mapped memory go directly to the FPGA fabric — no kernel transition, no ioctl, just a store instruction.
+The stock `socfpga_de10_nano_defconfig` in U-Boot 2024.07 does **not** define a `bootcmd`, which causes U-Boot to drop to the `=>` prompt instead of auto-booting. This fragment enables automatic boot via the distro boot mechanism.
 
 ---
 
 ## Troubleshooting
+
+### FPGA programming times out (CONF_DONE never asserted)
+
+**Symptom:** `fpga_load: TIMEOUT - CONF_DONE never asserted. gpio=0x...`
+
+**Root cause:** The RBF bitstream is uncompressed, but the DE10-Nano's MSEL switches (`0x0A`) require a compressed bitstream.
+
+**Fix:** Regenerate the RBF with compression enabled:
+```bash
+quartus_cpf -c --option=bitstream_compression=on input.sof output.rbf
+```
+
+The `scripts/convert_sof_to_rbf.sh` already does this. If you manually generated the RBF, ensure compression is on.
+
+**How to verify MSEL:** In the kernel module boot log:
+```
+fpga_load: MSEL=0x0A ...
+```
+MSEL `0x0A` = Fast Passive Parallel ×32 with AES + Decompression. The decompression engine is active and rejects uncompressed data.
+
+### U-Boot stops at `=>` prompt (no auto-boot)
+
+**Symptom:** U-Boot prints its banner but does not automatically load Linux.
+
+**Root cause:** The U-Boot `socfpga_de10_nano` defconfig has `# CONFIG_USE_BOOTCOMMAND is not set`.
+
+**Workaround (manual boot):** At the `=>` prompt, type:
+```
+run distro_bootcmd
+```
+
+**Permanent fix:** The `uboot.fragment` in `br2-external/board/de10_nano/` sets:
+```
+CONFIG_USE_BOOTCOMMAND=y
+CONFIG_BOOTCOMMAND="run distro_bootcmd"
+```
+
+If auto-boot still doesn't work after a clean build, verify the fragment path in `de10_nano_defconfig`:
+```
+BR2_TARGET_UBOOT_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_CVSOC_PATH)/board/de10_nano/uboot.fragment"
+```
+
+### `devmem 0xFF200000` returns bus error
+
+The LW H2F bridge is not enabled. This can happen if:
+
+1. **FPGA is not programmed** — `fpga_load.ko` failed to load or the S30 init script didn't run
+2. **Bridge resets not released** — Check `dmesg | grep fpga_load` for the "LW H2F bridge enabled" message
+3. **fpga_load.ko not found** — Verify `/lib/modules/$(uname -r)/fpga_load.ko` exists
+
+To manually enable the bridge (after FPGA is programmed):
+```bash
+# Assert then deassert bridge resets
+devmem 0xFFD0501C 32 0x7    # assert all bridge resets
+devmem 0xFFD0501C 32 0x0    # deassert
+# Set L3 remap bits
+devmem 0xFF800000 32 0x18   # enable H2F + LW H2F in L3 GPV
+```
+
+### Serial console shows garbage or no output
+
+Verify the baud rate is **115200** and the TX/RX lines are not swapped. The DE10-Nano UART header (J4) pinout:
+
+```
+J4 header (looking at the board with UART header on left side):
+Pin 1  (GND)      — Connect to adapter GND
+Pin 9  (UART0_RX) — Connect to adapter TX
+Pin 10 (UART0_TX) — Connect to adapter RX
+```
+
+> **Tip:** If using picocom on WSL2, add `--noreset --noinit` to prevent picocom from sending modem control signals that can reset the board:
+> ```bash
+> picocom -b 115200 --noreset --noinit /dev/ttyUSB0
+> ```
+
+### `/dev/ttyUSB0` busy or locked
+
+If picocom reports "Device or resource busy", another process holds the serial port:
+
+```bash
+fuser /dev/ttyUSB0
+# Shows PID of the process holding the port
+# Then kill it (replace 12345 with actual PID):
+kill 12345
+```
 
 ### Build fails: `You seem to have a path with spaces`
 
@@ -531,39 +650,57 @@ Buildroot cannot handle paths containing spaces. On WSL2, the Windows `PATH` is 
 export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v ' ' | tr '\n' ':' | sed 's/:$//')
 ```
 
-### Build fails: `BR2_LEGACY` error
+---
 
-If you see `BR2_LEGACY=y`, your defconfig references a deprecated option. The most common cause is `BR2_PACKAGE_DEVMEM2`, which was removed in Buildroot 2024.11. Use BusyBox's built-in `devmem` instead.
+## How the FPGA programming works (deep dive)
 
-### No `/dev/uio0` after boot
+This section explains the hardware-verified programming sequence for readers who want to understand or modify the kernel module.
 
-1. Check the kernel log: `dmesg | grep uio`
-2. If no UIO messages appear, verify the DTB contains the UIO node:
-   ```bash
-   mount /dev/mmcblk0p2 /mnt
-   dtc -I dtb -O dts /mnt/socfpga_cyclone5_de0_nano_soc.dtb | grep -A3 generic-uio
-   umount /mnt
-   ```
-3. If the node is missing, the `post-image.sh` merge step may have failed — rebuild and check the build output for errors.
+### MSEL and CDRATIO
 
-### `devmem 0xFF200000` returns `bus error`
+The Cyclone V FPGA has physical mode-select switches (MSEL[4:0]) that determine the configuration scheme. The DE10-Nano uses MSEL = `0b01010` (0x0A), which maps to:
 
-The LW H2F bridge is not enabled. This can happen if:
-- The FPGA is not programmed (load the RBF first)
-- The bridge reset was not released by U-Boot or the kernel
+| Parameter | Value | Meaning |
+|-----------|-------|---------|
+| Mode | FPPx32 | Fast Passive Parallel, 32-bit data |
+| AES | Optional | Encryption available but not used |
+| Decompression | Enabled | Hardware decompression is **active** |
+| CDRATIO | X8 | Clock-to-data ratio for decompression |
+| CFGWDTH | 32 | Configuration data width |
 
-### LEDs don't change after writing to `/dev/uio0`
+The CDRATIO and CFGWDTH values are taken from the Linux kernel source (`drivers/fpga/socfpga.c`, `cfgmgr_modes[]` array) and **must** match what the hardware expects.
 
-1. Verify the FPGA is programmed: `cat /sys/class/fpga_manager/fpga0/state` should show `operating`
-2. Verify you are writing to the correct offset: the LED PIO DATA register is at offset `0x00` from the mapping base
-3. Try `devmem 0xFF200000 32 0xFF` to confirm the hardware path works independently of UIO
+### Register map
 
-### Serial console shows garbage or no output
+| Address | Register | Purpose |
+|---------|----------|---------|
+| `0xFF706000` | FPGAMGR_STAT | Current state machine state + MSEL readback |
+| `0xFF706004` | FPGAMGR_CTRL | Configuration control (EN, NCE, NCFGPULL, CDRATIO, AXICFGEN) |
+| `0xFF706008` | FPGAMGR_DCLKCNT | DCLK pulse count for finalization |
+| `0xFF706850` | FPGAMGR_GPIO_EXT | nSTATUS, CONF_DONE, INIT_DONE monitoring |
+| `0xFF70684C` | GPIO_PORTA_EOI | End-of-interrupt clear (must clear before data write) |
+| `0xFFB90000` | Data port | 32-bit write-only: bitstream data goes here |
 
-Verify the baud rate is 115200 and the TX/RX lines are not swapped. The DE10-Nano UART header pinout is:
-- Pin 1 (leftmost): GND
-- Pin 10: UART0_TX (connect to adapter RX)
-- Pin 9: UART0_RX (connect to adapter TX)
+### State machine progression
+
+```
+POWER_OFF → RESET → CONFIG → INIT → USER_MODE
+                         ↑              ↑
+                    After NCFGPULL   After CONF_DONE
+                    release          + DCLK pulses
+```
+
+### Bridge enable sequence
+
+After FPGA reaches USER_MODE, the HPS-to-FPGA bridges must be explicitly enabled:
+
+1. **Assert bridge resets** (`RSTMGR_BRGMODRST @ 0xFFD0501C`): Write bits [2:0] = `0x7`
+2. **Wait 100µs** for reset to propagate
+3. **Deassert bridge resets**: Clear bits [2:0] = `0x0`
+4. **Wait 100µs** for bridges to come out of reset
+5. **Set L3 remap** (`L3_REMAP @ 0xFF800000`): Set bit 4 (LW H2F) and bit 3 (H2F)
+
+> **Critical:** Accessing `0xFF200000` before the bridge is enabled will cause an AXI bus stall and hang the system (bus error or complete freeze).
 
 ---
 
@@ -572,21 +709,22 @@ Verify the baud rate is 115200 and the TX/RX lines are not swapped. The DE10-Nan
 | Concept | Where demonstrated |
 |---|---|
 | Building a complete Linux system with Buildroot | `make buildroot` produces kernel, U-Boot, rootfs, SD card image |
-| Buildroot external tree for board customisation | `br2-external/` with defconfig, board scripts, custom package |
-| Device tree for FPGA peripherals | `fpga_led_overlay.dts` — UIO binding at `0xFF200000` |
-| Kernel config fragments | `linux-uio.fragment` enables UIO + FPGA Manager |
-| UIO driver framework | `generic-uio` compatible node → `/dev/uio0` |
-| User-space register access via `mmap()` | `fpga_led.c` — `mmap()` on `/dev/uio0` |
+| Buildroot external tree for board customisation | `br2-external/` with defconfig, board scripts, custom packages |
+| FPGA programming from Linux via kernel module | `fpga_load.ko` — direct FPGA Manager register access |
+| Compressed bitstream requirement (MSEL) | `convert_sof_to_rbf.sh` with `bitstream_compression=on` |
+| HPS-to-FPGA bridge initialization | Reset cycle + L3 remap in `fpga_load.c` |
+| User-space register access via `mmap()` | `fpga_led.c` — `mmap()` on `/dev/mem` at `0xFF200000` |
 | Python mmap for hardware access | `fpga_led.py` — same registers from Python |
 | SD card partition layout for Cyclone V | `genimage.cfg` — type 0xA2 SPL + FAT32 + ext4 |
 | U-Boot distro boot mechanism | `extlinux.conf` → automatic kernel + DTB loading |
-| FPGA bitstream loading from Linux | FPGA Manager sysfs interface |
+| Init scripts for hardware initialization | `S30fpga_load` loads kernel module at boot |
 
 ---
 
 ## Next steps
 
 - **Ethernet control (Phase 7):** Add a TCP/UDP server to `fpga_led` so you can control the LEDs remotely from a PC. This builds on the Linux networking stack already present in the image.
-- **FPGA Manager automation:** Write a systemd or init.d service that loads the RBF bitstream automatically at boot, before user-space applications start.
-- **Custom kernel driver:** Replace the UIO approach with a full `platform_driver` that exposes LED control through the kernel LED subsystem (`/sys/class/leds/`).
-- **Runtime device tree overlays:** Rebuild the kernel DTB with symbols (`-@` flag) and apply the overlay at runtime through configfs — useful for hot-plugging FPGA peripherals.
+- **UIO driver integration:** Add a `compatible = "generic-uio"` node to the device tree for a cleaner user-space interface without requiring root access to `/dev/mem`.
+- **Custom kernel driver:** Replace the `/dev/mem` approach with a full `platform_driver` that exposes LED control through the kernel LED subsystem (`/sys/class/leds/`).
+- **Runtime device tree overlays:** Rebuild the kernel DTB with symbols (`-@` flag) and apply overlays at runtime through configfs — useful for hot-plugging FPGA peripherals.
+- **FPGA Manager API:** Once the 10ms IRQ timeout is resolved upstream (or with a patched kernel), switch from direct register access to the standard `fpga_mgr_load()` API for better maintainability.

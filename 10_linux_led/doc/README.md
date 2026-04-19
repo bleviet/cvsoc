@@ -1,9 +1,9 @@
 # 10 — Embedded Linux on HPS
 
 Boot a custom Linux system on the DE10-Nano's ARM Cortex-A9, program the
-FPGA fabric at boot-time using the kernel's FPGA Manager, and drive the
-on-board LEDs from a user-space C application via the UIO (Userspace I/O)
-framework.
+FPGA fabric at boot-time using a custom kernel module with direct FPGA Manager
+register access, and drive the on-board LEDs from a user-space C application
+via `/dev/mem` mmap.
 
 This is the first project in the series where the ARM processor runs a real
 operating system. Everything from the bootloader to the LED animation is built
@@ -22,11 +22,11 @@ from source by **Buildroot** in a single `make` command.
  │  │                      │   0xFF200000        │  8-bit output    │   │
  │  │  Linux 6.6           │                    └──────┬────────────┘   │
  │  │  │                   │                           │                │
- │  │  ├─ fpga_load.ko  ──────► FPGA Manager ─────► FPGA CONFIG       │
- │  │  │  (programs FPGA)  │   (kernel driver)                         │
+ │  │  ├─ fpga_load.ko  ──────► FPGA Mgr regs ────► FPGA CONFIG       │
+ │  │  │  (programs FPGA)  │   (direct access)                         │
  │  │  │                   │                                            │
- │  │  └─ /dev/uio0 ────────────────────────────────► LED PIO regs    │
- │  │     (UIO mapping)    │                                            │
+ │  │  └─ /dev/mem mmap ───────────────────────────► LED PIO regs    │
+ │  │     (0xFF200000)     │                                            │
  │  │                      │                                            │
  │  │  fpga_led (app) ──────────────────────────────► LED patterns    │
  │  └──────────────────────┘                                            │
@@ -46,7 +46,7 @@ from source by **Buildroot** in a single `make` command.
 - Explain the Cyclone V SoC boot flow from BootROM to Linux userspace
 - Build a complete embedded Linux system with Buildroot
 - Program the FPGA from a running Linux system using a kernel module
-- Use the Linux UIO framework to access FPGA peripherals from user space
+- Access FPGA peripherals from user space via `/dev/mem` mmap
 - Control hardware with a C application that requires no kernel driver changes
 
 ---
@@ -535,13 +535,15 @@ make all                      # synthesise and compile the FPGA design
 
 # Convert the .sof to the flat binary format (.rbf) required by FPGA Manager
 quartus_cpf -c \
-    --option=bitstream_compression=off \
+    --option=bitstream_compression=on \
     output_files/de10_nano.sof \
     ../10_linux_led/de10_nano.rbf
 ```
 
-The `--option=bitstream_compression=off` flag is required. The FPGA Manager
-expects a flat, uncompressed Passive Parallel x32 (FPPx32) bitstream.
+The `--option=bitstream_compression=on` flag is **required** for the DE10-Nano.
+The board's MSEL switches are set to `0x0A` (FPPx32 with Decompression), which
+means the FPGA's hardware decompression engine is active and expects compressed
+data. Using an uncompressed RBF will cause CONF_DONE to never assert.
 
 ---
 
