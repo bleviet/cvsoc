@@ -51,13 +51,13 @@ FPGA_CLK1_50 ──► clk_bridge ──► nios2 CPU (Nios II/e, Tiny)      │
 
 ## Building (fully scripted)
 
-All steps are driven from the command line inside the `raetro/quartus:23.1` Docker image.
+All steps are driven from the command line inside the `cvsoc/quartus:23.1` Docker image.
 No GUI tool is required.
 
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/04_nios2_led/quartus && make all"
 ```
 

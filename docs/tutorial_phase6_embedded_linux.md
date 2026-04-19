@@ -54,7 +54,7 @@ The FPGA design is reused unchanged from project 05 (`05_hps_led`). The only new
 
 | Requirement | Details |
 |---|---|
-| **Docker** | `raetro/quartus:23.1` image (for SOF → RBF conversion) |
+| **Docker** | `cvsoc/quartus:23.1` image (for SOF → RBF conversion) |
 | **Repository** | `git clone` of `bleviet/cvsoc`; phases 0–5 already working |
 | **Phase 3** | Project `05_hps_led` built — the SOF file must exist |
 | **Host tools** | `wget`, `tar`, `make`, `gcc`, `mtools` (for SD card image generation) |
@@ -65,8 +65,8 @@ The FPGA design is reused unchanged from project 05 (`05_hps_led`). The only new
 Verify the Docker image and SOF file before continuing:
 
 ```bash
-docker images | grep raetro/quartus
-# Expected: raetro/quartus   23.1   ...
+docker images | grep cvsoc/quartus
+# Expected: cvsoc/quartus   23.1   ...
 
 ls 05_hps_led/quartus/de10_nano.sof
 # Must exist. Run 'make compile' in 05_hps_led/quartus/ if missing.
@@ -85,7 +85,7 @@ sudo apt-get install -y mtools
 > | Environment | What | Examples |
 > |---|---|---|
 > | 🖥️ **Host** (your Linux / WSL2 machine) | Building, flashing SD card | `make buildroot`, `make app-cross`, `dd` |
-> | 🐳 **Docker** (`raetro/quartus:23.1`) | FPGA bitstream conversion only | `make rbf` (wraps `quartus_cpf`) |
+> | 🐳 **Docker** (`cvsoc/quartus:23.1`) | FPGA bitstream conversion only | `make rbf` (wraps `quartus_cpf`) |
 > | 📟 **Target** (DE10-Nano via serial console) | Running apps on the board | `fpga_led`, `devmem`, `dmesg` |
 >
 > `make rbf` is the **only** command that requires Docker. Everything else —

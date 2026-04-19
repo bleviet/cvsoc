@@ -73,7 +73,7 @@ debounce: one edge → one interrupt.
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/06_nios2_interrupts/quartus && make all"
 ```
 

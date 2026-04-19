@@ -17,7 +17,7 @@ By the end of this tutorial, you will be able to launch the **Quartus Prime** an
 | Requirement | Details |
 |---|---|
 | **Host OS** | Linux (Native) or Windows 11 with WSL2 (WSLg) |
-| **Docker** | `raetro/quartus:23.1` image available locally |
+| **Docker** | `cvsoc/quartus:23.1` image available locally |
 | **X Server** | On Linux: standard X11. On WSL2: WSLg is built-in. |
 
 ---
@@ -50,7 +50,7 @@ docker run --rm -it \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -e DISPLAY=$DISPLAY \
   -v $(pwd):/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   /opt/intelFPGA/quartus/bin/quartus
 ```
 
@@ -80,7 +80,7 @@ docker run --rm -it \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -e DISPLAY=$DISPLAY \
   -v $(pwd):/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   /opt/intelFPGA/quartus/sopc_builder/bin/qsys-edit
 ```
 

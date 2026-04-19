@@ -93,7 +93,7 @@ The 64 KB OCRAM is used for code, data, and two ARM exception-mode stacks:
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/07_hps_interrupts/quartus && make all"
 ```
 

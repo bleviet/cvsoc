@@ -8,7 +8,7 @@
 
 ## How to read this reference
 
-Commands in this project are invoked through **`make` targets** inside each phase's `quartus/` directory, always running inside the `raetro/quartus:23.1` Docker container. The sections below document every command by *category*. Use the [Per-phase quick-reference](#per-phase-quick-reference) table at the end to look up which targets are available for a specific phase.
+Commands in this project are invoked through **`make` targets** inside each phase's `quartus/` directory, always running inside the `cvsoc/quartus:23.1` Docker container. The sections below document every command by *category*. Use the [Per-phase quick-reference](#per-phase-quick-reference) table at the end to look up which targets are available for a specific phase.
 
 **Variable overrides** are listed alongside the targets and tools that use them. Any variable can be set on the `make` command line:
 
@@ -39,14 +39,14 @@ make <target> VARIABLE=value
 
 ## 1. Docker container commands
 
-All build tools, FPGA compilers, and embedded toolchains run inside the `raetro/quartus:23.1` Docker image.
+All build tools, FPGA compilers, and embedded toolchains run inside the `cvsoc/quartus:23.1` Docker image.
 
 ### Run a build (non-interactive)
 
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/<phase>/quartus && make all"
 ```
 
@@ -64,7 +64,7 @@ Required for `nios2-download`, `jtagconfig`, and `openocd`:
 docker run --rm --privileged \
   -v /path/to/cvsoc:/work \
   -v /path/to/cvsoc/common/docker/uname_shim.sh:/usr/local/bin/uname:ro \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   <command>
 ```
 
@@ -85,7 +85,7 @@ docker run --rm -it \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -e DISPLAY=$DISPLAY \
   -v $(pwd):/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   /opt/intelFPGA/quartus/bin/quartus
 ```
 
@@ -97,7 +97,7 @@ docker run --rm -it \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -e DISPLAY=$DISPLAY \
   -v $(pwd):/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   /opt/intelFPGA/quartus/sopc_builder/bin/qsys-edit
 ```
 
@@ -170,7 +170,7 @@ make program-sof USBIPD_BUSID=3-1 -C 04_nios2_led/quartus
 ```bash
 docker run --rm --privileged \
   -v $(pwd)/common/docker/uname_shim.sh:/usr/local/bin/uname:ro \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "/opt/intelFPGA/quartus/bin/jtagd && sleep 2 && \
            /opt/intelFPGA/quartus/bin/jtagconfig"
 ```
@@ -395,7 +395,7 @@ Downloads and starts the Nios II ELF via `nios2-download` inside Docker.
 docker run --rm --privileged \
   -v /path/to/cvsoc:/work \
   -v .../uname_shim.sh:/usr/local/bin/uname:ro \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   nios2-download -g /work/<phase>/software/app/<name>.elf
 ```
 
@@ -414,7 +414,7 @@ docker run --rm --privileged \
   -v /path/to/cvsoc:/work \
   -v .../uname_shim.sh:/usr/local/bin/uname:ro \
   -v de10_nano_hps.cfg:/tmp/de10_nano_hps.cfg:ro \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c '/opt/intelFPGA/quartus/bin/jtagd && sleep 2 && \
     /opt/intelFPGA/quartus/bin/openocd \
       -f /tmp/de10_nano_hps.cfg \
@@ -476,7 +476,7 @@ Opens the Nios II JTAG UART terminal to receive `printf` output from the firmwar
 ```bash
 docker run --rm -it --privileged \
   -v .../uname_shim.sh:/usr/local/bin/uname:ro \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   nios2-terminal
 ```
 
@@ -494,7 +494,7 @@ docker run --rm -it --privileged \
   -p 2345:2345 \
   -v /path/to/cvsoc:/work \
   -v .../uname_shim.sh:/usr/local/bin/uname:ro \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c '/opt/intelFPGA/quartus/bin/jtagd && sleep 2 && \
     nios2-gdb-server \
       --tcpport 2345 \
@@ -524,7 +524,7 @@ Connects `nios2-elf-gdb` to the running `nios2-gdb-server` and executes the GDB 
 docker run --rm -it \
   --network host \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   nios2-elf-gdb \
     -ex "set pagination off" \
     -x /work/08_nios2_debug/scripts/nios2_debug.gdb \
@@ -552,7 +552,7 @@ docker run --rm -it --privileged \
   -v /path/to/cvsoc:/work \
   -v .../uname_shim.sh:/usr/local/bin/uname:ro \
   -v de10_nano_hps.cfg:/tmp/de10_nano_hps.cfg:ro \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c '/opt/intelFPGA/quartus/bin/jtagd && sleep 2 && \
     /opt/intelFPGA/quartus/bin/openocd \
       -f /tmp/de10_nano_hps.cfg \
@@ -581,7 +581,7 @@ Connects `arm-none-eabi-gdb` to the running OpenOCD server. Run in **Terminal 2*
 docker run --rm -it \
   --network host \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c 'apt-get install -y gdb-arm-none-eabi -qq && \
     arm-none-eabi-gdb \
       -ex "set pagination off" \
@@ -868,7 +868,7 @@ All variables have defaults in each Makefile and can be overridden on the comman
 | `USBIPD_BUSID` | `2-4` | USB bus ID of the USB-Blaster II | 04–09 |
 | `USBIPD` | `usbipd.exe` | Path to `usbipd-win` executable | 04–09 |
 | `QUARTUS_PGM` | `/mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe` | Path to `quartus_pgm.exe` | 04–09 |
-| `DOCKER_IMAGE` | `raetro/quartus:23.1` | Docker image for build and debug containers | 04–09 |
+| `DOCKER_IMAGE` | `cvsoc/quartus:23.1` | Docker image for build and debug containers | 04–09 |
 | `ARM_CC` | `arm-linux-gnueabihf-gcc` | ARM cross-compiler | 05, 07, 09 |
 | `HPS_IP` | `192.168.1.100` | Board IP address for `deploy-elf` (SSH) | 05, 07, 09 |
 | `HPS_USER` | `root` | SSH user for `deploy-elf` | 05, 07, 09 |

@@ -36,7 +36,7 @@ FPGA_CLK1_50 ──► clk_bridge ──► Nios II/e CPU                      �
 
 | Requirement | Details |
 |---|---|
-| **Docker** | `raetro/quartus:23.1` image available locally |
+| **Docker** | `cvsoc/quartus:23.1` image available locally |
 | **Repository** | `git clone` of `bleviet/cvsoc`, phases 0 and 1 already working |
 | **Board** | Terasic DE10-Nano (Cyclone V `5CSEBA6U23I7`) |
 | **JTAG cable** | USB-Blaster (built in on the DE10-Nano) |
@@ -44,8 +44,8 @@ FPGA_CLK1_50 ──► clk_bridge ──► Nios II/e CPU                      �
 Verify the Docker image is present before continuing:
 
 ```bash
-docker images | grep raetro/quartus
-# Expected: raetro/quartus   23.1   ...
+docker images | grep cvsoc/quartus
+# Expected: cvsoc/quartus   23.1   ...
 ```
 
 ---
@@ -275,7 +275,7 @@ The Platform Designer system is an auto-generated black box. Your hand-written V
 After `qsys-generate` runs, inspect the generated entity to see the exact port names:
 
 ```bash
-docker run --rm -v /path/to/cvsoc:/work raetro/quartus:23.1 \
+docker run --rm -v /path/to/cvsoc:/work cvsoc/quartus:23.1 \
   head -20 /work/04_nios2_led/qsys/nios2_system_gen/synthesis/nios2_system.vhd
 ```
 
@@ -370,7 +370,7 @@ The Makefile in `quartus/` orchestrates the entire hardware flow. From inside th
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/04_nios2_led/quartus && make qsys project compile"
 ```
 
@@ -406,7 +406,7 @@ The BSP is generated from `nios2_system.sopcinfo` — the machine-readable descr
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/04_nios2_led/quartus && make bsp"
 ```
 
@@ -480,7 +480,7 @@ int main(void)
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/04_nios2_led/quartus && make app"
 ```
 
@@ -555,7 +555,7 @@ The full pipeline — hardware generation, FPGA compile, BSP, firmware — is a 
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/04_nios2_led/quartus && make all"
 ```
 
@@ -566,7 +566,7 @@ To start completely fresh:
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/04_nios2_led/quartus && make clean && make all"
 ```
 

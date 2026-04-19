@@ -303,15 +303,15 @@ docker run --rm -v $(pwd):/work cvsoc/quartus:23.1 \
 
 | Phase | Directory | Compiler(s) used | Provided by |
 |---|---|---|---|
-| 0 — LED blink | `00_led_blinking` | Quartus synthesis only | `raetro/quartus:23.1` |
-| 1 — LED runner | `01_led_running` | Quartus synthesis only | `raetro/quartus:23.1` |
-| 2 — Nios II LED | `04_nios2_led` | `nios2-elf-gcc` | `raetro/quartus:23.1` |
-| 3 — HPS bare-metal | `05_hps_led` | `arm-linux-gnueabihf-gcc` | **added by `cvsoc/quartus:23.1`** |
-| 4 — Nios II interrupts | `06_nios2_interrupts` | `nios2-elf-gcc` | `raetro/quartus:23.1` |
-| 4 — HPS interrupts | `07_hps_interrupts` | `arm-linux-gnueabihf-gcc` | **added by `cvsoc/quartus:23.1`** |
-| 5 — Nios II debug | `08_nios2_debug` | `nios2-elf-gcc`, `nios2-elf-gdb` | `raetro/quartus:23.1` |
-| 5 — HPS debug | `09_hps_debug` | `arm-linux-gnueabihf-gcc`, `arm-none-eabi-gdb` | **added by `cvsoc/quartus:23.1`** |
-| 6 — Embedded Linux | `10_linux_led` | `arm-linux-gnueabihf-gcc` (app-cross), Buildroot on host | **added by `cvsoc/quartus:23.1`** |
+| 0 — LED blink | `00_led_blinking` | Quartus synthesis only | `cvsoc/quartus:23.1` (Quartus from base layer) |
+| 1 — LED runner | `01_led_running` | Quartus synthesis only | `cvsoc/quartus:23.1` (Quartus from base layer) |
+| 2 — Nios II LED | `04_nios2_led` | `nios2-elf-gcc` | `cvsoc/quartus:23.1` (Nios II EDS from base layer) |
+| 3 — HPS bare-metal | `05_hps_led` | `arm-linux-gnueabihf-gcc` | `cvsoc/quartus:23.1` (ARM toolchain layer) |
+| 4 — Nios II interrupts | `06_nios2_interrupts` | `nios2-elf-gcc` | `cvsoc/quartus:23.1` (Nios II EDS from base layer) |
+| 4 — HPS interrupts | `07_hps_interrupts` | `arm-linux-gnueabihf-gcc` | `cvsoc/quartus:23.1` (ARM toolchain layer) |
+| 5 — Nios II debug | `08_nios2_debug` | `nios2-elf-gcc`, `nios2-elf-gdb` | `cvsoc/quartus:23.1` (Nios II EDS from base layer) |
+| 5 — HPS debug | `09_hps_debug` | `arm-linux-gnueabihf-gcc`, `arm-none-eabi-gdb` | `cvsoc/quartus:23.1` (ARM toolchain layer) |
+| 6 — Embedded Linux | `10_linux_led` | `arm-linux-gnueabihf-gcc` (app-cross), Buildroot on host | `cvsoc/quartus:23.1` (ARM toolchain layer) |
 
 ---
 

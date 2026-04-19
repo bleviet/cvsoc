@@ -64,7 +64,7 @@ FPGA_CLK1_50 ──► clk_bridge ──► nios2 CPU (Nios II/e)               
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/08_nios2_debug/quartus && make all"
 ```
 
@@ -84,7 +84,7 @@ docker run --rm \
 docker run --rm \
   -v /path/to/cvsoc:/work \
   --device /dev/bus/usb \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/08_nios2_debug/quartus && make gdb-server"
 ```
 
@@ -97,7 +97,7 @@ This programs the FPGA, loads the ELF into Nios II OCRAM, and starts
 docker run --rm -it \
   -v /path/to/cvsoc:/work \
   --network host \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/08_nios2_debug/quartus && make gdb"
 ```
 

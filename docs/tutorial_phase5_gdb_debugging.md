@@ -56,7 +56,7 @@ Every step — bitstream programming, firmware build, GDB server startup, and GD
 
 | Requirement | Details |
 |---|---|
-| **Docker** | `raetro/quartus:23.1` image available locally |
+| **Docker** | `cvsoc/quartus:23.1` image available locally |
 | **Repository** | `git clone` of `bleviet/cvsoc`; phases 0–4 already working |
 | **Phase 4** | Interrupt handling for Nios II (project 06) and HPS (project 07) understood |
 | **SOF files** | `06_nios2_interrupts/quartus/de10_nano.sof` and `07_hps_interrupts/quartus/de10_nano.sof` built and available |
@@ -66,8 +66,8 @@ Every step — bitstream programming, firmware build, GDB server startup, and GD
 Verify the Docker image and SOF files before continuing:
 
 ```bash
-docker images | grep raetro/quartus
-# Expected: raetro/quartus   23.1   ...
+docker images | grep cvsoc/quartus
+# Expected: cvsoc/quartus   23.1   ...
 
 ls 06_nios2_interrupts/quartus/de10_nano.sof
 ls 07_hps_interrupts/quartus/de10_nano.sof
@@ -138,7 +138,7 @@ cd 08_nios2_debug/quartus
 docker run --rm \
   -v "$(pwd)/../..:/work" \
   -v "$(pwd)/../../common/docker/uname_shim.sh:/usr/local/bin/uname:ro" \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/08_nios2_debug/quartus && make bsp app"
 ```
 
@@ -153,7 +153,7 @@ The output is `software/app/nios2_debug.elf`. Verify the size:
 > Or copy the pre-existing BSP from project 06 (same hardware):
 > ```bash
 > cp -r 06_nios2_interrupts/software/bsp 08_nios2_debug/software/bsp
-> docker run --rm -v "$(pwd)/../..:/work" raetro/quartus:23.1 \
+> docker run --rm -v "$(pwd)/../..:/work" cvsoc/quartus:23.1 \
 >   bash -c "cd /work/08_nios2_debug/software/app && make"
 > ```
 
@@ -210,7 +210,7 @@ Verify the JTAG chain after programming:
 ```bash
 docker run --rm --privileged \
   -v "$(pwd)/../../common/docker/uname_shim.sh:/usr/local/bin/uname:ro" \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "/opt/intelFPGA/quartus/bin/jtagd && sleep 2 && \
            /opt/intelFPGA/quartus/bin/jtagconfig"
 # Expected:
@@ -233,7 +233,7 @@ docker run --rm -it --privileged \
   -p 2345:2345 \
   -v "$(repo_root):/work" \
   -v ".../uname_shim.sh:/usr/local/bin/uname:ro" \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c '/opt/intelFPGA/quartus/bin/jtagd && sleep 2 && \
     nios2-gdb-server --tcpport 2345 --tcppersist --tcpdebug'
 ```
@@ -371,7 +371,7 @@ Project 09 requires `arm-linux-gnueabihf-gcc` and `arm-none-eabi-gdb`. Install t
 cd 09_hps_debug/quartus
 docker run --rm \
   -v "$(pwd)/../..:/work" \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/09_hps_debug/quartus && make setup"
 ```
 
@@ -390,7 +390,7 @@ apt-get install -y gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf gdb-arm-
 ```bash
 docker run --rm \
   -v "$(pwd)/../..:/work" \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "
     echo 'deb http://snapshot.debian.org/archive/debian/20220622T000000Z stretch main' \
       > /etc/apt/sources.list

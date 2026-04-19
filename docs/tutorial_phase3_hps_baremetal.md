@@ -45,7 +45,7 @@ FPGA_CLK1_50 ──►│─ clk_0 (50 MHz) ────────────
 
 | Requirement | Details |
 |---|---|
-| **Docker** | `raetro/quartus:23.1` image available locally |
+| **Docker** | `cvsoc/quartus:23.1` image available locally |
 | **Repository** | `git clone` of `bleviet/cvsoc`; phases 0 and 1 already working |
 | **Phase 2** | Phase 2 completed or understood; you know what Platform Designer and `qsys-generate` do |
 | **Board** | Terasic DE10-Nano (Cyclone V `5CSEBA6U23I7`) |
@@ -54,8 +54,8 @@ FPGA_CLK1_50 ──►│─ clk_0 (50 MHz) ────────────
 Verify the Docker image is present:
 
 ```bash
-docker images | grep raetro/quartus
-# Expected: raetro/quartus   23.1   ...
+docker images | grep cvsoc/quartus
+# Expected: cvsoc/quartus   23.1   ...
 ```
 
 ---
@@ -284,7 +284,7 @@ The VHDL top-level wrapper (`hdl/de10_nano_top.vhd`) re-exports these as clean b
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/05_hps_led/quartus && make qsys"
 ```
 
@@ -354,7 +354,7 @@ The patch is run automatically by `make qsys`. To run it manually:
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   python3 /work/05_hps_led/scripts/patch_oct.py \
     /work/05_hps_led/qsys/hps_system/synthesis/submodules/\
 altdq_dqs2_acv_connect_to_hard_phy_cyclonev.sv
@@ -443,7 +443,7 @@ Create the project:
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/05_hps_led/quartus && make project"
 ```
 
@@ -498,7 +498,7 @@ compile:
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/05_hps_led/quartus && make compile"
 ```
 
@@ -722,14 +722,14 @@ void main(void)
 Install the ARM cross-compiler (one-time setup inside the Docker container):
 
 ```bash
-docker run --rm -v /path/to/cvsoc:/work raetro/quartus:23.1 \
+docker run --rm -v /path/to/cvsoc:/work cvsoc/quartus:23.1 \
   bash -c "cd /work/05_hps_led/quartus && make setup"
 ```
 
 Then build:
 
 ```bash
-docker run --rm -v /path/to/cvsoc:/work raetro/quartus:23.1 \
+docker run --rm -v /path/to/cvsoc:/work cvsoc/quartus:23.1 \
   bash -c "cd /work/05_hps_led/quartus && make app"
 ```
 
@@ -755,7 +755,7 @@ The `setup` step only needs to run once per fresh container session. After that,
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "
     cd /work/05_hps_led/quartus && \
     make setup && \
@@ -768,7 +768,7 @@ docker run --rm \
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "
     cd /work/05_hps_led/quartus && \
     make setup && \
@@ -805,7 +805,7 @@ downloaded 524 bytes in 0.17s (3.0 KiB/s)
 Done: HPS LED application is running.
 ```
 
-> **How it works:** `download-elf` starts a `jtagd` daemon inside the `raetro/quartus:23.1` Docker container, then launches OpenOCD with the `aji_client` interface (the only JTAG interface supported by that build). OpenOCD halts the CPU, loads the raw `.bin` file into OCRAM at `0xFFFF0000`, sets PC to the entry point, and resumes execution. See `05_hps_led/scripts/de10_nano_hps.cfg` for the full OpenOCD configuration.
+> **How it works:** `download-elf` starts a `jtagd` daemon inside the `cvsoc/quartus:23.1` Docker container, then launches OpenOCD with the `aji_client` interface (the only JTAG interface supported by that build). OpenOCD halts the CPU, loads the raw `.bin` file into OCRAM at `0xFFFF0000`, sets PC to the entry point, and resumes execution. See `05_hps_led/scripts/de10_nano_hps.cfg` for the full OpenOCD configuration.
 
 ### 6.4 Observe the LEDs
 
@@ -887,7 +887,7 @@ undefined reference to `__aeabi_uidivmod'
 
 ### 7. ARM GCC flag: use `-mfpu=neon-vfpv4`, not `neon-vfpv3`
 
-The `raetro/quartus:23.1` container includes GCC 6.x for the ARM cross-toolchain. GCC 6 does not recognise `-mfpu=neon-vfpv3`. The Cortex-A9 in the Cyclone V SoC supports VFPv4, so `-mfpu=neon-vfpv4` is both correct and accepted by GCC 6.
+The `cvsoc/quartus:23.1` container includes GCC 6.x for the ARM cross-toolchain. GCC 6 does not recognise `-mfpu=neon-vfpv3`. The Cortex-A9 in the Cyclone V SoC supports VFPv4, so `-mfpu=neon-vfpv4` is both correct and accepted by GCC 6.
 
 ### 8. The exception vector table must be at offset 0 when OCRAM is remapped
 

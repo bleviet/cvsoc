@@ -58,7 +58,7 @@ Every step â€” hardware generation, bitstream compilation, and firmware build â€
 
 | Requirement | Details |
 |---|---|
-| **Docker** | `raetro/quartus:23.1` image available locally |
+| **Docker** | `cvsoc/quartus:23.1` image available locally |
 | **Repository** | `git clone` of `bleviet/cvsoc`; phases 0â€“3 already working |
 | **Phase 2** | Nios II Platform Designer flow, HAL BSP generation understood |
 | **Phase 3** | HPS bare-metal startup, LW H2F bridge, OCRAM execution understood |
@@ -68,8 +68,8 @@ Every step â€” hardware generation, bitstream compilation, and firmware build â€
 Verify the Docker image is present before continuing:
 
 ```bash
-docker images | grep raetro/quartus
-# Expected: raetro/quartus   23.1   ...
+docker images | grep cvsoc/quartus
+# Expected: cvsoc/quartus   23.1   ...
 ```
 
 ---
@@ -269,7 +269,7 @@ The push-buttons are active-LOW on the DE10-Nano. The PIO is configured to captu
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/06_nios2_interrupts/quartus && make all"
 ```
 
@@ -369,7 +369,7 @@ quartus_pgm -m jtag -o "p;06_nios2_interrupts/quartus/output_files/de10_nano.sof
 ```bash
 docker run --rm --privileged \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   nios2-download -g /work/06_nios2_interrupts/software/app/nios2_interrupts.elf
 ```
 
@@ -523,7 +523,7 @@ hps_system_inst : hps_system
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/07_hps_interrupts/quartus && make all"
 ```
 
@@ -731,7 +731,7 @@ The `@2` suffix selects device 2 in the JTAG chain (device 1 is the HPS ARM DAP;
 ```bash
 docker run --rm --privileged \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   openocd \
     -f /work/07_hps_interrupts/scripts/de10_nano_hps.cfg \
     -c "init; halt" \
@@ -793,7 +793,7 @@ pop   {r0-r3, r12, pc}^        /* rejected by GNU as */
 
 ### `apt-get` fails inside Docker on the HPS project
 
-The `raetro/quartus:23.1` container is based on Debian Stretch (EOL). The default `sources.list` points to dead mirrors. The Makefile `setup` target overwrites the sources list with the Debian snapshot archive:
+The `cvsoc/quartus:23.1` container is based on Debian Stretch (EOL). The default `sources.list` points to dead mirrors. The Makefile `setup` target overwrites the sources list with the Debian snapshot archive:
 
 ```makefile
 setup:

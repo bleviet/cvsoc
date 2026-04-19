@@ -15,7 +15,7 @@ By the end of this tutorial you will be able to, from a single terminal in WSL2:
 - **Load and run the HPS bare-metal application** (`05_hps_led`) into ARM OCRAM via JTAG
 - **Understand why** each tool must run where it does, so you can troubleshoot confidently
 
-The build environment for this series uses a Docker container (`raetro/quartus:23.1`) running inside WSL2. This creates a challenge: the USB-Blaster II cable that connects your PC to the DE10-Nano can only be owned by **one consumer at a time** — either the Windows host (for `quartus_pgm.exe`) or the WSL2/Docker environment (for `nios2-download` and `openocd`).
+The build environment for this series uses a Docker container (`cvsoc/quartus:23.1`) running inside WSL2. This creates a challenge: the USB-Blaster II cable that connects your PC to the DE10-Nano can only be owned by **one consumer at a time** — either the Windows host (for `quartus_pgm.exe`) or the WSL2/Docker environment (for `nios2-download` and `openocd`).
 
 This tutorial walks you through the full workflow, step by step.
 
@@ -28,7 +28,7 @@ This tutorial walks you through the full workflow, step by step.
 | **Board** | Terasic DE10-Nano connected via USB (USB-Blaster II built-in) |
 | **Built files** | `04_nios2_led/quartus/de10_nano.sof` and/or `05_hps_led/quartus/de10_nano.sof` |
 | **Built ELFs** | `04_nios2_led/software/app/nios2_led.elf` and/or `05_hps_led/software/app/hps_led.elf` |
-| **Docker** | `raetro/quartus:23.1` image available locally |
+| **Docker** | `cvsoc/quartus:23.1` image available locally |
 | **Windows Quartus Programmer** | `quartus_pgm.exe` accessible at `/mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe` |
 | **usbipd-win** | Installed on Windows (see Step 1) |
 | **Repository** | `git clone` of `bleviet/cvsoc` with Phases 2 and 3 complete |
@@ -64,7 +64,7 @@ Understanding the constraint saves you debugging time later.
 │                                                     │             │
 │  ┌──────────────────────┐   ┌──────────────────┐   │             │
 │  │  Docker container    │   │  WSL2 shell      │   │             │
-│  │  raetro/quartus:23.1 │   │  usbipd attach/  │   │             │
+│  │  cvsoc/quartus:23.1 │   │  usbipd attach/  │   │             │
 │  │  nios2-download      │   │  detach          │   │             │
 │  │  openocd (jtagd)     │   └──────────────────┘   │             │
 │  └──────────────────────┘                          │             │
@@ -93,7 +93,7 @@ The fix is `common/docker/uname_shim.sh`: a tiny `uname` wrapper that strips `mi
 
 ### Why Intel's OpenOCD uses aji_client, not usb_blaster
 
-The `openocd` binary bundled with `raetro/quartus:23.1` is Intel's own build. It does not include the generic `usb_blaster` driver. Instead it exposes only `aji_client` — an interface that speaks to a running `jtagd` (Altera JTAG daemon) over a local socket.
+The `openocd` binary bundled with `cvsoc/quartus:23.1` is Intel's own build. It does not include the generic `usb_blaster` driver. Instead it exposes only `aji_client` — an interface that speaks to a running `jtagd` (Altera JTAG daemon) over a local socket.
 
 The `make download-elf` target for Phase 3 therefore starts `jtagd` first, waits for it to initialise, then runs `openocd`.
 
@@ -139,7 +139,7 @@ After binding, `usbipd list` shows `Shared` in the STATE column.
 To see the devices in the JTAG chain, you can use the `jtagconfig` utility. From WSL2, you can run this command inside the Docker container (ensuring the USB-Blaster is attached via `usbipd` first):
 
 ```bash
-docker run --rm --privileged -v /dev/bus/usb:/dev/bus/usb raetro/quartus:23.1 jtagconfig
+docker run --rm --privileged -v /dev/bus/usb:/dev/bus/usb cvsoc/quartus:23.1 jtagconfig
 ```
 
 **Expected output:**
@@ -352,7 +352,7 @@ ls 05_hps_led/software/app/hps_led.bin
 
 ### OpenOCD exits immediately with "usb_blaster not found"
 
-The `raetro/quartus:23.1` OpenOCD build supports only `aji_client`. The `de10_nano_hps.cfg` configuration uses `aji_client` by default — if this error appears, the config was edited. Restore it:
+The `cvsoc/quartus:23.1` OpenOCD build supports only `aji_client`. The `de10_nano_hps.cfg` configuration uses `aji_client` by default — if this error appears, the config was edited. Restore it:
 
 ```bash
 git checkout 05_hps_led/scripts/de10_nano_hps.cfg

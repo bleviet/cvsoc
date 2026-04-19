@@ -74,7 +74,7 @@ FPGA_CLK1_50 ──► HPS Cortex-A9 (single core, bare-metal)                  
 ```bash
 docker run --rm \
   -v /path/to/cvsoc:/work \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/09_hps_debug/quartus && make all"
 ```
 
@@ -93,7 +93,7 @@ docker run --rm \
 docker run --rm \
   -v /path/to/cvsoc:/work \
   --device /dev/bus/usb \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/09_hps_debug/quartus && make openocd"
 ```
 
@@ -106,7 +106,7 @@ OpenOCD running with the GDB server active on port 3333.
 docker run --rm -it \
   -v /path/to/cvsoc:/work \
   --network host \
-  raetro/quartus:23.1 \
+  cvsoc/quartus:23.1 \
   bash -c "cd /work/09_hps_debug/quartus && make gdb"
 ```
 
