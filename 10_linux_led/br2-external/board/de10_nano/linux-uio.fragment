@@ -12,5 +12,9 @@ CONFIG_FPGA_BRIDGE=y
 CONFIG_FPGA_REGION=y
 CONFIG_OF_FPGA_REGION=y
 
-# Device tree overlay support
+# Device tree overlay and configfs support
 CONFIG_OF_OVERLAY=y
+
+# Loadable kernel module support (required for fpga_load.ko)
+CONFIG_MODULES=y
+CONFIG_MODULE_UNLOAD=y

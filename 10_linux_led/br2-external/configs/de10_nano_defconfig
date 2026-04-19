@@ -53,10 +53,14 @@ BR2_ROOTFS_POST_SCRIPT_ARGS="-c $(BR2_EXTERNAL_DE10_NANO_PATH)/board/de10_nano/g
 # ── Host tools ───────────────────────────────────────────────────────────────
 BR2_PACKAGE_HOST_GENIMAGE=y
 BR2_PACKAGE_HOST_DTC=y
+# mkimage is provided by U-Boot build (BR2_TARGET_UBOOT=y above) at host/bin/mkimage
 
 # ── Target packages ──────────────────────────────────────────────────────────
 # Our FPGA LED user-space application
 BR2_PACKAGE_FPGA_LED=y
+
+# Kernel module to program the FPGA at boot via FPGA Manager API
+BR2_PACKAGE_FPGA_MGR_LOAD=y
 
 # Python 3 for the mmap demo script
 BR2_PACKAGE_PYTHON3=y

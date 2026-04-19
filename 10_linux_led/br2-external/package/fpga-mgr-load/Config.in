@@ -1,0 +1,8 @@
+config BR2_PACKAGE_FPGA_MGR_LOAD
+	bool "fpga-mgr-load"
+	depends on BR2_LINUX_KERNEL
+	help
+	  Kernel module that programs the Cyclone V FPGA using the kernel's
+	  FPGA Manager API (fpga_mgr_load). Used at boot via S30fpga_load
+	  init script to place the FPGA into USER_MODE before the LED UIO
+	  device becomes accessible.
