@@ -1,0 +1,54 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug HPS (Project 09)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/09_hps_debug/software/app/hps_debug.elf",
+            "cwd": "${workspaceFolder}/09_hps_debug/software/app",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb-multiarch",
+            "miDebuggerServerAddress": "localhost:3333",
+            "setupCommands": [
+                {
+                    "description": "Disable MMU and Caches",
+                    "text": "monitor arm mcr 15 0 1 0 0 0",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Load ELF into OCRAM",
+                    "text": "load",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Halt at main",
+                    "text": "hbreak main",
+                    "ignoreFailures": false
+                }
+            ]
+        },
+        {
+            "name": "Debug Nios II (Project 08)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/08_nios2_debug/software/app/nios2_debug.elf",
+            "cwd": "${workspaceFolder}/08_nios2_debug/software/app",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb-multiarch",
+            "miDebuggerServerAddress": "localhost:2345",
+            "setupCommands": [
+                {
+                    "description": "Load ELF into On-Chip RAM",
+                    "text": "load",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "Set breakpoint at set_led",
+                    "text": "break set_led",
+                    "ignoreFailures": false
+                }
+            ]
+        }
+    ]
+}
