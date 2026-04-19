@@ -237,13 +237,13 @@ Use [Balena Etcher](https://etcher.balena.io/) or `Win32DiskImager`. Select
 ### 4.1 Connect the UART
 
 Connect the USB-to-UART adapter between your host PC and the DE10-Nano's
-UART header (JP1):
+UART header (**J4**, the 10-pin header near the power barrel connector):
 
-| DE10-Nano J1 pin | Signal | Adapter pin |
-|-----------------|--------|-------------|
-| Pin 2           | GND    | GND         |
-| Pin 3           | TX     | RX          |
-| Pin 4           | RX     | TX          |
+| DE10-Nano J4 pin | Signal    | Adapter pin |
+|-----------------|-----------|-------------|
+| Pin 1           | GND       | GND         |
+| Pin 10          | UART0_TX  | RX          |
+| Pin 9           | UART0_RX  | TX          |
 
 Open a terminal at **115200 8N1**:
 
@@ -451,15 +451,21 @@ fdtput -t s $DTB /soc/fpga_bridge@ff400000 status okay
 fdtput    $DTB /soc/base_fpga_region ranges
 fdtput -t s $DTB /soc/base_fpga_region firmware-name de10_nano.rbf
 fdtput -t x $DTB /soc/base_fpga_region fpga-bridges 0x40
-
-# Add the UIO LED PIO child node
-fdtput -t s $DTB /soc/base_fpga_region/led-controller@ff200000 compatible generic-uio
-fdtput -t x $DTB /soc/base_fpga_region/led-controller@ff200000 reg 0xff200000 0x10
-fdtput -t s $DTB /soc/base_fpga_region/led-controller@ff200000 status okay
 ```
 
-This approach is robust (no sed-based text surgery on DTS files) and the
-changes are visible in the source tree without requiring a manual DTB rebuild.
+Adding the `led-controller@ff200000` UIO child node requires a full DTS
+round-trip because `fdtput` (DTC 1.7.x) can modify existing nodes but cannot
+create new ones. `post-image.sh` decompiles the DTB to DTS, injects the node
+with a Python one-liner, then recompiles:
+
+```bash
+dtc -I dtb -O dts -o patched.dts $DTB
+python3 -c "..." patched.dts    # inject led-controller@ff200000 block
+dtc -I dts -O dtb -o $DTB patched.dts
+```
+
+This approach is reliable (no sed-based text surgery on DTS files), the changes
+are expressed in code, and the output can be verified with `fdtget`.
 
 ---
 
