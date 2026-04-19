@@ -39,7 +39,7 @@ By the end of this tutorial you will boot a complete embedded Linux system on th
            │                     Linux kernel                                │
            │                                                                 │
            │  Init script S30fpga_load:                                      │
-           │    insmod fpga_load.ko → programs FPGA + enables LW bridge     │
+           │    modprobe fpga_load  → programs FPGA + enables LW bridge     │
            │                          │                                      │
            │  User space:    fpga_led ──► mmap(/dev/mem) ──► LED PIO regs   │
            │                                   @ 0xFF200000                  │
@@ -253,7 +253,7 @@ This single command:
 
 > **First build time:** approximately 15–30 minutes depending on your machine and internet speed. Subsequent builds that only change user-space code take under a minute.
 
-> **WSL2 note:** If your `PATH` contains Windows paths with spaces (common on WSL2), Buildroot will refuse to build. Sanitise your PATH before building:
+> **WSL2 note:** If your `PATH` contains Windows paths with spaces (common on WSL2), Buildroot will refuse to build. The top-level Makefile handles this automatically by sanitising PATH. If you invoke Buildroot directly, sanitise your PATH first:
 > ```bash
 > export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v ' ' | tr '\n' ':' | sed 's/:$//')
 > ```
@@ -510,8 +510,9 @@ The programming sequence:
 
 ```sh
 #!/bin/sh
-# Loads the kernel module which programs the FPGA and enables bridges
-insmod "/lib/modules/$(uname -r)/fpga_load.ko" firmware="de10_nano.rbf"
+# Loads the kernel module which programs the FPGA and enables bridges.
+# Use modprobe so it picks the correct copy from updates/ (depmod order).
+modprobe fpga_load firmware="de10_nano.rbf"
 ```
 
 This runs at boot (BusyBox init, priority 30 — after modules are loaded). The `firmware=` parameter tells the module which RBF file to load from `/lib/firmware/`.
@@ -546,7 +547,7 @@ The `genimage.cfg` file defines three partitions:
 
 The external tree keeps all DE10-Nano customisations outside the Buildroot source:
 
-- `external.desc` — declares the external tree name (`CVSOC`)
+- `external.desc` — declares the external tree name (`DE10_NANO`)
 - `configs/de10_nano_defconfig` — the master configuration (architecture, toolchain, kernel, U-Boot, packages)
 - `board/de10_nano/` — board-specific scripts, config fragments, and init scripts
 - `package/fpga-led/` — Buildroot package definition for the C application
@@ -614,7 +615,7 @@ The LW H2F bridge is not enabled. This can happen if:
 
 1. **FPGA is not programmed** — `fpga_load.ko` failed to load or the S30 init script didn't run
 2. **Bridge resets not released** — Check `dmesg | grep fpga_load` for the "LW H2F bridge enabled" message
-3. **fpga_load.ko not found** — Verify `/lib/modules/$(uname -r)/fpga_load.ko` exists
+3. **fpga_load.ko is stale** — Verify the module has bridge-enable code: `dmesg | grep "LW H2F bridge enabled"`
 4. **You are running an older flashed image** — Older Phase 6 images still contain the UIO-based
    `fpga_led` binary and predate the final bridge-enable fixes
 
@@ -669,7 +670,7 @@ kill 12345
 
 ### Build fails: `You seem to have a path with spaces`
 
-Buildroot cannot handle paths containing spaces. On WSL2, the Windows `PATH` is inherited and often contains spaces. Sanitise it before building:
+Buildroot cannot handle paths containing spaces. On WSL2, the Windows `PATH` is inherited and often contains spaces. The top-level Makefile handles this automatically. If you invoke Buildroot directly, sanitise PATH first:
 
 ```bash
 export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v ' ' | tr '\n' ':' | sed 's/:$//')

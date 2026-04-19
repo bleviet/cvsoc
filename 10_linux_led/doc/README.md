@@ -105,12 +105,12 @@ and how they fit together at runtime.
 
 5. Init system (BusyBox)
        Runs /etc/init.d/S30fpga_load
-       → insmod fpga_load.ko: programs FPGA from /lib/firmware/de10_nano.rbf
-       → devmem: enables the LW H2F bridge
+       → modprobe fpga_load: programs FPGA from /lib/firmware/de10_nano.rbf
+                             and enables the LW H2F bridge
        /dev/uio0 appears (LED PIO is now accessible)
 
 6. User space
-       fpga_led opens /dev/uio0, mmap()s the LED PIO registers, animates LEDs
+       fpga_led opens /dev/mem, mmap()s the LED PIO registers, animates LEDs
 ```
 
 ### Device Tree role
@@ -130,13 +130,16 @@ project the key nodes are:
 The `post-image.sh` script patches these properties into the stock Buildroot
 DTB using `fdtput` at image-build time. No manual DTS editing is required.
 
-### UIO framework
+### User-space register access
 
-The Linux UIO framework (`CONFIG_UIO_PDRV_GENIRQ`) allows a user-space program
-to `mmap()` memory-mapped I/O regions without writing a kernel driver. A device
-node (`/dev/uio0`) is created automatically when the kernel sees a DT node with
-`compatible = "generic-uio"`. The `fpga_led` application then maps the LED PIO
-register file directly into its own address space.
+The `fpga_led` application accesses the LED PIO register via `/dev/mem` mmap at
+physical address `0xFF200000` (the LW H2F bridge base). This is the simplest
+approach — no custom kernel driver is needed; the application maps the physical
+register directly into its own virtual address space.
+
+The system also sets up a UIO device (`/dev/uio0`) via the Device Tree node
+`compatible = "generic-uio"` and the `uio_pdrv_genirq` driver. This provides
+an alternative, non-root-capable access path for future use.
 
 ---
 
@@ -304,21 +307,18 @@ If `/dev/uio0` is present and the FPGA state is `operating`, you are ready.
 
 At boot, BusyBox init runs `/etc/init.d/S30fpga_load`. This script:
 
-1. **Loads `fpga_load.ko`** — a tiny kernel module that calls the kernel's
-   `fpga_mgr_load()` function directly:
+1. **Loads `fpga_load.ko`** — a kernel module that programs the FPGA via direct
+   register access and then enables the HPS-to-FPGA bridges:
    ```bash
-   insmod /lib/modules/$(uname -r)/fpga_load.ko firmware=de10_nano.rbf
+   modprobe fpga_load firmware=de10_nano.rbf
    ```
-   The kernel's FPGA Manager (`socfpga-fpga-mgr`) takes over: it resets the
-   FPGA, streams the RBF bitstream from `/lib/firmware/de10_nano.rbf` over the
-   FPGA configuration data bus, and waits for CONF_DONE to assert.
+   The module maps the FPGA Manager registers via `ioremap()`, puts the FPGA
+   into configuration mode, streams the compressed RBF bitstream through the
+   data port (`0xFFB90000`), and polls for CONF_DONE.
 
-2. **Enables the LW H2F bridge** — once the FPGA is in USER_MODE, the bridge
-   must be taken out of reset before peripherals inside the FPGA are accessible:
-   ```bash
-   # Clear bit 1 of BRGMODRST (Bridge Module Reset register)
-   devmem 0xFFD0501C 32 $(printf '0x%08X' $(($(devmem 0xFFD0501C 32) & ~2)))
-   ```
+2. **Enables the LW H2F bridge** — once the FPGA reaches USER_MODE, the same
+   module cycles the bridge resets (BRGMODRST at `0xFFD0501C`) and sets the L3
+   remap register. You should see `fpga_load: LW H2F bridge enabled` in dmesg.
 
 3. **`/dev/uio0` appears** — the kernel's UIO platform driver probes the
    `led-controller@ff200000` DT node (now that the region is fully operational)
@@ -387,53 +387,57 @@ but bypasses the kernel's device model entirely.
 ### `fpga_load.c` — the FPGA programmer module
 
 The `fpga_load.ko` module is loaded once at boot and then can be removed. Its
-`init` function performs these steps:
+`init` function performs these steps via direct register access:
 
 ```c
-// 1. Find the FPGA Manager in the Device Tree
-node = of_find_compatible_node(NULL, NULL, "altr,socfpga-fpga-mgr");
-mgr  = of_fpga_mgr_get(node);
+// 1. Map FPGA Manager registers
+void __iomem *base = ioremap(0xFF706000, 0x1000);
+void __iomem *data = ioremap(0xFFB90000, 4);
 
 // 2. Request the .rbf file from /lib/firmware/
-request_firmware(&fw, "de10_nano.rbf", &mgr->dev);
+request_firmware(&fw, "de10_nano.rbf", ...);
 
-// 3. Fill in the image descriptor
-info->buf   = fw->data;
-info->count = fw->size;
-info->flags = 0;           // full reconfiguration (not partial)
+// 3. Set CDRATIO=X8 and CFGWDTH=32 (for MSEL=0x0A)
+// 4. Reset the FPGA: assert NCFGPULL, wait for RESET state
+// 5. Enter CONFIG: release NCFGPULL, wait for CONFIG state
+// 6. Clear GPIO EOI, enable AXICFGEN
+// 7. Write bitstream: 32-bit writel() loop to the data port
+// 8. Poll for CONF_DONE (5-second timeout)
+// 9. Finalize: clear AXICFGEN, send DCLK pulses, wait for USER_MODE
 
-// 4. Lock the manager and load
-fpga_mgr_lock(mgr);
-fpga_mgr_load(mgr, info);  // internally: RESET → CONFIG → USER_MODE
-fpga_mgr_unlock(mgr);
+// 10. Enable LW H2F bridge (cycle bridge resets + set L3 remap)
+void __iomem *rstmgr = ioremap(0xFFD0501C, 4);
+writel(0x7, rstmgr);   // assert bridge resets
+udelay(100);
+writel(0x0, rstmgr);   // deassert
 ```
 
-The kernel's `fpga_mgr_load()` handles all the low-level sequencing: it reads
-the MSEL pins from the STAT register to determine the correct `CDRATIO` and
-`CFGWDTH` settings, manages the NCONFIGPULL/NSTATUS handshake, streams the data
-through the configuration data port, and waits for CONF_DONE.
+This bypasses the kernel's `fpga_mgr_load()` API which has a 10ms IRQ-based
+timeout for CONF_DONE that is too short in practice. The direct register
+approach uses a 5-second polling loop for reliable bring-up.
 
 ### `fpga_led.c` — the LED controller
 
-The user-space application opens `/dev/uio0` and maps the LED PIO register file:
+The user-space application opens `/dev/mem` and maps the LED PIO register
+at the LW H2F bridge physical address:
 
 ```c
-// Open the UIO character device
-int fd = open("/dev/uio0", O_RDWR | O_SYNC);
+#define LWH2F_BASE  0xFF200000
+#define MAP_SIZE    0x1000
 
-// Map the hardware registers into the process's virtual address space
-volatile uint32_t *base = mmap(NULL, 0x1000,
-    PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+int fd = open("/dev/mem", O_RDWR | O_SYNC);
+
+// Map the physical address into the process's virtual address space
+volatile uint32_t *base = mmap(NULL, MAP_SIZE,
+    PROT_READ | PROT_WRITE, MAP_SHARED, fd, LWH2F_BASE);
 
 // Write directly to the LED PIO DATA register (offset 0x00)
 *base = 0xAA;   // sets LEDs to alternating pattern 1010 1010
 ```
 
-The UIO kernel subsystem translates the `mmap()` offset into the physical
-address registered in the Device Tree (`0xFF200000`). No kernel driver is
-involved in the subsequent register reads and writes — they go directly from the
-process's virtual address to the ARM AXI bus and through the LW H2F bridge to
-the Avalon PIO peripheral inside the FPGA.
+No kernel driver is involved in the register reads and writes — they go
+directly from the process's virtual address to the ARM AXI bus and through
+the LW H2F bridge to the Avalon PIO peripheral inside the FPGA.
 
 ### `post-image.sh` — the DTB patcher
 
@@ -495,7 +499,7 @@ are expressed in code, and the output can be verified with `fdtget`.
 ├── software/
 │   ├── fpga_led/
 │   │   ├── Makefile
-│   │   └── fpga_led.c                    # C app: animates LEDs via /dev/uio0
+│   │   └── fpga_led.c                    # C app: animates LEDs via /dev/mem mmap
 │   ├── fpga_load/
 │   │   ├── Kbuild
 │   │   └── fpga_load.c                   # Kernel module: programs FPGA at boot
@@ -520,7 +524,7 @@ are expressed in code, and the output can be verified with `fdtget`.
 | LED PIO DIRECTION | `0xFF200004` | 4 B | I/O direction (all outputs) |
 | FPGA Manager CSR | `0xFF706000` | 4 KB | FPGA config state machine |
 | FPGA Manager data | `0xFFB90000` | 4 B | Configuration data port (write-only) |
-| Bridge module reset | `0xFFD0501C` | 4 B | BRGMODRST: bit 1 = LW H2F reset |
+| Bridge module reset | `0xFFD0501C` | 4 B | BRGMODRST: bit 0 = H2F, bit 1 = LW H2F, bit 2 = F2H |
 
 ---
 
@@ -586,44 +590,43 @@ devmem 0xFFD0501C 32
 If the FPGA state is not `operating`:
 ```bash
 # Manually re-run the FPGA programmer
-insmod /lib/modules/$(uname -r)/fpga_load.ko firmware=de10_nano.rbf
+modprobe fpga_load firmware=de10_nano.rbf
 dmesg | grep fpga_load
 ```
 
-### `fpga_led` prints "cannot open /dev/uio0: No such file or directory"
+### `fpga_led` or `devmem 0xFF200000` causes a bus error
 
-The UIO module may not be loaded:
-
-```bash
-modprobe uio_pdrv_genirq
-ls /dev/uio*
-```
-
-If the module is loaded but the device still does not appear, the LED PIO DT
-node is not being probed. Verify the DTB has the correct properties:
+This means the LW H2F bridge is not enabled. Check and enable manually:
 
 ```bash
-cat /proc/device-tree/soc/base_fpga_region/led-controller@ff200000/compatible
-# Expected: generic-uio
-```
-
-### LEDs do not respond to writes
-
-The LW H2F bridge may not be enabled. Check and enable it:
-
-```bash
-# Read BRGMODRST — bit 1 must be 0 for LW H2F to be active
+# Read BRGMODRST — bits [1:0] must be 0 for bridges to be active
 devmem 0xFFD0501C 32
-# If bit 1 is set (value has 0x2 OR'd in), clear it:
+# If non-zero, clear all bridge resets:
 devmem 0xFFD0501C 32 0x00000000
 ```
 
-### Build fails: "Your PATH contains spaces"
-
-This is a WSL2 issue caused by Windows paths leaking into `$PATH`. Build with:
+If this happens consistently after a fresh boot, `fpga_load.ko` may be stale
+(an older version without bridge-enable code). Check the dmesg output:
 
 ```bash
-PATH=$(echo $PATH | tr ':' '\n' | grep -v ' ' | tr '\n' ':') make
+dmesg | grep fpga_load
+# Look for: "fpga_load: LW H2F bridge enabled"
+# If that line is missing, rebuild: make buildroot
+```
+
+> **Stale image check:** If `fpga_led` prints `Error: cannot open /dev/uio0`,
+> you are running an older image that predates the `/dev/mem` rewrite. Reflash
+> the current `sdcard.img`.
+
+### Build fails: "Your PATH contains spaces"
+
+This is a WSL2 issue caused by Windows paths leaking into `$PATH`. The
+Makefile handles this automatically by sanitising PATH before invoking
+Buildroot. If you call Buildroot directly, sanitise PATH manually:
+
+```bash
+export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v ' ' | tr '\n' ':' | sed 's/:$//')
+make -C buildroot-2024.11.1
 ```
 
 ---
@@ -635,8 +638,8 @@ PATH=$(echo $PATH | tr ':' '\n' | grep -v ' ' | tr '\n' ':') make
 | SoC boot flow (BootROM → SPL → U-Boot → Linux) | `genimage.cfg` partitioning, U-Boot `boot.scr` |
 | Buildroot external tree | `br2-external/` directory structure |
 | Device Tree bindings | `post-image.sh` DTB patching, `fdtput` |
-| Linux FPGA Manager API | `fpga_load.c`, `S30fpga_load` |
-| UIO (Userspace I/O) framework | `fpga_led.c`, DT `compatible = "generic-uio"` |
-| Memory-mapped I/O from userspace | `mmap()` call in `fpga_led.c` |
+| Direct FPGA Manager register access | `fpga_load.c`, `S30fpga_load` |
+| Memory-mapped I/O from userspace | `mmap()` on `/dev/mem` in `fpga_led.c` |
+| UIO (Userspace I/O) framework | DT `compatible = "generic-uio"`, `/dev/uio0` |
 | BusyBox init.d scripts | `S30fpga_load` naming convention (S=start, 30=order) |
 | `fdtput` / `fdtget` — scriptable DTB editing | `post-image.sh` |
