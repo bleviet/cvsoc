@@ -12,6 +12,15 @@ output/
 # Device tree blobs (compiled from DTS sources)
 dts/*.dtbo
 
+# Kernel module build artifacts
+software/fpga_load/*.o
+software/fpga_load/*.ko
+software/fpga_load/*.mod
+software/fpga_load/*.mod.c
+software/fpga_load/Module.symvers
+software/fpga_load/modules.order
+software/fpga_load/.*.cmd
+
 # Editor / OS junk
 *~
 *.swp

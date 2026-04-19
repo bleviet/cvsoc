@@ -4,6 +4,10 @@
 # The FPGA Manager in Linux expects a Raw Binary File (.rbf) to load the
 # FPGA fabric.  This script uses quartus_cpf to perform the conversion.
 #
+# IMPORTANT: bitstream_compression=on is REQUIRED for the DE10-Nano because
+# the MSEL switches are set to 0x0A (PP32_FAST_AESOPT_DC) which means the
+# FPGA's decompression engine is active and expects compressed data.
+#
 # Usage:
 #   ./convert_sof_to_rbf.sh <input.sof> [output.rbf]
 #
@@ -31,7 +35,7 @@ fi
 echo "Converting: $SOF_FILE → $RBF_FILE"
 
 quartus_cpf -c \
-    --option=bitstream_compression=off \
+    --option=bitstream_compression=on \
     "$SOF_FILE" "$RBF_FILE"
 
 echo "Done: $RBF_FILE ($(stat -c %s "$RBF_FILE") bytes)"

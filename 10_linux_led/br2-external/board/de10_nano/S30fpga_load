@@ -2,15 +2,10 @@
 # /etc/init.d/S30fpga_load — Program the FPGA and enable the LW H2F bridge
 #
 # This script runs after the kernel modules are loaded (S20 in BusyBox init).
-# It uses the kernel's FPGA Manager (fpgamgr driver) via the fpga_load kernel
-# module to program the FPGA from /lib/firmware/de10_nano.rbf.
-#
-# After the FPGA is in USER_MODE the script enables the Lightweight HPS-to-FPGA
-# bridge so that peripherals in the FPGA fabric are accessible from Linux.
+# It uses the fpga_load kernel module which directly programs the FPGA via
+# the FPGA Manager registers and enables the LW H2F bridge.
 
 FIRMWARE="de10_nano.rbf"
-BRGMODRST_ADDR="0xFFD0501C"   # RSTMGR bridge module reset register
-LW_H2F_BIT=2                  # Bit 1 of BRGMODRST controls LW H2F bridge
 
 start() {
     printf "Starting FPGA programming... "
@@ -21,7 +16,7 @@ start() {
         return 1
     fi
 
-    # Load the fpga_load kernel module which calls fpga_mgr_load()
+    # Load the fpga_load kernel module (programs FPGA + enables bridges)
     if [ -f "/lib/modules/$(uname -r)/fpga_load.ko" ]; then
         insmod "/lib/modules/$(uname -r)/fpga_load.ko" firmware="${FIRMWARE}"
         ret=$?
@@ -32,38 +27,12 @@ start() {
 
     if [ $ret -ne 0 ]; then
         echo "FAILED (insmod returned $ret)"
-        dmesg | grep fpga_load | tail -3
+        dmesg | grep fpga_load | tail -5
         return 1
     fi
 
-    # Wait up to 3 seconds for FPGA to reach USER_MODE (state=4)
-    for i in $(seq 1 30); do
-        state=$(cat /sys/class/fpga_manager/fpga0/state 2>/dev/null)
-        if [ "$state" = "operating" ]; then
-            break
-        fi
-        sleep 0.1
-    done
-
-    state=$(cat /sys/class/fpga_manager/fpga0/state 2>/dev/null)
-    if [ "$state" != "operating" ]; then
-        echo "FAILED (FPGA state: ${state:-unknown})"
-        return 1
-    fi
-
-    echo "OK (FPGA in USER_MODE)"
-
-    # Enable the Lightweight HPS-to-FPGA bridge by clearing bit 1 of BRGMODRST
-    printf "Enabling LW H2F bridge... "
-    current=$(devmem ${BRGMODRST_ADDR} 32 2>/dev/null)
-    if [ -n "$current" ]; then
-        new=$(printf "0x%08X" $(( current & ~(1 << 1) )) )
-        devmem ${BRGMODRST_ADDR} 32 "${new}" 2>/dev/null
-        echo "OK"
-    else
-        echo "WARNING (devmem not available)"
-    fi
-
+    echo "OK"
+    dmesg | grep fpga_load | tail -3
     return 0
 }
 
