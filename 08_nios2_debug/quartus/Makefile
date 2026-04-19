@@ -149,7 +149,6 @@ terminal: usb-wsl
 #       The shim disables WSL detection inside Docker on WSL2 hosts.
 gdb-server: usb-wsl
 	docker run --rm -it --privileged \
-	  --name nios2-gdb-server \
 	  -p $(GDB_PORT):$(GDB_PORT) \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \

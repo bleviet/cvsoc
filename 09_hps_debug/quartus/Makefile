@@ -180,7 +180,6 @@ deploy-elf: $(APP_DIR)/hps_debug.elf
 #       the second 'make gdb' container can connect via --network host.
 openocd: usb-wsl
 	docker run --rm -it --privileged \
-	  --name hps-openocd \
 	  -p $(GDB_PORT):$(GDB_PORT) \
 	  -p 4444:4444 \
 	  -v $(REPO_ROOT):/work \

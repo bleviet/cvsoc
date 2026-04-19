@@ -2,13 +2,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "DevContainer: Debug HPS (Project 09)",
+            "name": "Toolchain: Debug HPS (Project 09)",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/09_hps_debug/software/app/hps_debug.elf",
             "cwd": "${workspaceFolder}/09_hps_debug/software/app",
             "MIMode": "gdb",
-            "miDebuggerPath": "arm-none-eabi-gdb",
+            "miDebuggerPath": "${workspaceFolder}/common/docker/arm-none-eabi-gdb-wrapper.sh",
             "logging": { "engineLogging": true, "trace": true },
             "setupCommands": [
                 { "text": "file ${workspaceFolder}/09_hps_debug/software/app/hps_debug.elf", "ignoreFailures": false },
@@ -38,30 +38,13 @@
             "launchCompleteCommand": "exec-continue"
         },
         {
-            "name": "DevContainer: Debug Nios II (Project 08)",
+            "name": "Toolchain: Debug Nios II (Project 08)",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/08_nios2_debug/software/app/nios2_debug.elf",
             "cwd": "${workspaceFolder}/08_nios2_debug/software/app",
             "MIMode": "gdb",
-            "miDebuggerPath": "nios2-elf-gdb",
-            "logging": { "engineLogging": true, "trace": true },
-            "setupCommands": [
-                { "text": "file ${workspaceFolder}/08_nios2_debug/software/app/nios2_debug.elf", "ignoreFailures": false },
-                { "text": "target remote localhost:2345", "ignoreFailures": false },
-                { "text": "load", "ignoreFailures": false },
-                { "text": "break set_led", "ignoreFailures": false }
-            ],
-            "launchCompleteCommand": "exec-continue"
-        },
-        {
-            "name": "Host: Debug Nios II (Project 08)",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/08_nios2_debug/software/app/nios2_debug.elf",
-            "cwd": "${workspaceFolder}/08_nios2_debug/software/app",
-            "MIMode": "gdb",
-            "miDebuggerPath": "/usr/bin/gdb-multiarch",
+            "miDebuggerPath": "${workspaceFolder}/common/docker/nios2-elf-gdb-wrapper.sh",
             "logging": { "engineLogging": true, "trace": true },
             "setupCommands": [
                 { "text": "file ${workspaceFolder}/08_nios2_debug/software/app/nios2_debug.elf", "ignoreFailures": false },

@@ -9,7 +9,17 @@
 
 This guide explains how to connect the Visual Studio Code (VS Code) graphical debugger to the Nios II and ARM Cortex-A9 embedded targets.
 
-In Phase 5, you learned how to use the command-line GDB clients (`nios2-elf-gdb` and `arm-none-eabi-gdb`) running inside a Docker container. This guide uses a hybrid approach: the GDB server (which talks to the USB-Blaster) stays isolated in Docker, while a multi-architecture GDB client runs on your host machine to drive the VS Code UI.
+The approach is a **split-process model**:
+
+* The **GDB server** (which drives the USB-Blaster) runs inside the `cvsoc/quartus:23.1` Docker container, started from a terminal with `make gdb-server` or `make openocd`.
+* The **GDB client** is also run inside `cvsoc/quartus:23.1`, but as a thin wrapper script (`nios2-elf-gdb-wrapper.sh` / `arm-none-eabi-gdb-wrapper.sh`) that VS Code spawns as a subprocess — no VS Code Server or DevContainer required.
+
+> **Why not `gdb-multiarch` for Nios II, and why not a DevContainer?**
+>
+> * `gdb-multiarch` on Ubuntu 22.04/24.04 is compiled without Nios II support (`set arch nios2` → *Undefined item*).
+> * The `cvsoc/quartus:23.1` image is based on Debian 9 (glibc 2.24, GLIBCXX 3.4.22). The VS Code Remote Server requires glibc ≥ 2.28 and GLIBCXX ≥ 3.4.25, so the DevContainer approach fails at startup.
+>
+> The wrapper scripts work around both constraints: the correct architecture-specific GDB binary runs inside the container, but VS Code stays entirely on the host.
 
 ---
 
@@ -17,119 +27,86 @@ In Phase 5, you learned how to use the command-line GDB clients (`nios2-elf-gdb`
 
 Before starting, ensure you have:
 
-1.  **Completed Phase 5:** You must be able to successfully compile and run either `08_nios2_debug` or `09_hps_debug` from the command line.
-2.  **VS Code Installed:** Running on your host machine (Linux native or Windows via WSL Remote).
-3.  **C/C++ Extension:** The official Microsoft `ms-vscode.cpptools` extension installed in VS Code.
+1. **Completed Phase 5:** You must be able to successfully compile and run either `08_nios2_debug` or `09_hps_debug` from the command line.
+2. **VS Code Installed:** Running on your host machine (Linux native or Windows via WSL Remote).
+3. **C/C++ Extension:** The official `ms-vscode.cpptools` extension installed in VS Code.
+4. **Docker running on the host:** The wrapper scripts use `docker run` — the same requirement as all other `make` targets in this repo.
 
 ---
 
-## Step 1 — Install Host Dependencies
+## How it works
 
-VS Code needs a GDB executable on your host machine (the environment where VS Code is running) to act as the client. Instead of installing the massive Intel FPGA toolchain natively just for GDB, we install a lightweight, generic GDB client that supports multiple architectures (including ARM and Nios II).
+The repository includes two ready-made wrapper scripts in `common/docker/`:
 
-Run this command on your host machine (Linux native or inside your WSL2 terminal):
+| Script | GDB binary inside container | Used for |
+|--------|-----------------------------|----------|
+| `nios2-elf-gdb-wrapper.sh` | `nios2-elf-gdb` (GDB 13.2) | Project 08 — Nios II |
+| `arm-none-eabi-gdb-wrapper.sh` | `arm-none-eabi-gdb` (GDB 7.12) | Project 09 — HPS ARM |
+
+Each script mounts the workspace at the **same absolute path** inside the container, so every path VS Code passes to GDB (ELF file, source paths) resolves identically inside Docker — no path translation needed. `--network host` lets the containerised GDB client connect to the GDB server on `localhost:<port>`.
+
+---
+
+## Step 1 — Program the FPGA
+
+If you haven't already:
 
 ```bash
-sudo apt-get update
-sudo apt-get install gdb-multiarch
+# Project 09
+cd 09_hps_debug/quartus && make program-sof
+
+# Project 08
+cd 08_nios2_debug/quartus && make program-sof
 ```
 
-Verify the installation:
+---
 
+## Step 2 — Start the GDB server
+
+Open a terminal and leave it running. The server must be up before VS Code connects.
+
+**Project 09 — HPS ARM (OpenOCD):**
 ```bash
-gdb-multiarch --version
+cd 09_hps_debug/quartus
+make openocd
 ```
+Wait until you see: `Listening on port 3333 for gdb connections`
+
+**Project 08 — Nios II:**
+```bash
+cd 08_nios2_debug/quartus
+make gdb-server
+```
+Wait until the server prints that it is listening on port 2345.
 
 ---
 
-## Step 2 — Configure VS Code (`launch.json`)
+## Step 3 — Launch the VS Code debugger
 
-VS Code uses a `launch.json` file to define debug configurations.
+1. Open the `cvsoc` repository root in VS Code.
+2. Switch to the **Run and Debug** view (`Ctrl+Shift+D`).
+3. Select the configuration from the dropdown:
 
-1.  Open the `cvsoc` repository root in VS Code.
-2.  Create a folder named `.vscode` if it does not exist.
-3.  Create a file named `.vscode/launch.json` and paste the following configuration:
+| Configuration | GDB client | Project |
+|---------------|------------|---------|
+| `Toolchain: Debug HPS (Project 09)` | `arm-none-eabi-gdb` via wrapper | 09 — HPS |
+| `Host: Debug HPS (Project 09)` | `gdb-multiarch` (host) | 09 — HPS (alternative) |
+| `Toolchain: Debug Nios II (Project 08)` | `nios2-elf-gdb` via wrapper | 08 — Nios II |
 
-```json
-{
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Host: Debug HPS (Project 09)",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/09_hps_debug/software/app/hps_debug.elf",
-            "cwd": "${workspaceFolder}/09_hps_debug/software/app",
-            "MIMode": "gdb",
-            "miDebuggerPath": "/usr/bin/gdb-multiarch",
-            "setupCommands": [
-                { "text": "file ${workspaceFolder}/09_hps_debug/software/app/hps_debug.elf", "ignoreFailures": false },
-                { "text": "target remote localhost:3333", "ignoreFailures": false },
-                { "text": "monitor arm mcr 15 0 1 0 0 0", "ignoreFailures": true },
-                { "text": "load", "ignoreFailures": false },
-                { "text": "hbreak main", "ignoreFailures": false }
-            ],
-            "launchCompleteCommand": "exec-continue"
-        },
-        {
-            "name": "Host: Debug Nios II (Project 08)",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/08_nios2_debug/software/app/nios2_debug.elf",
-            "cwd": "${workspaceFolder}/08_nios2_debug/software/app",
-            "MIMode": "gdb",
-            "miDebuggerPath": "/usr/bin/gdb-multiarch",
-            "setupCommands": [
-                { "text": "file ${workspaceFolder}/08_nios2_debug/software/app/nios2_debug.elf", "ignoreFailures": false },
-                { "text": "target remote localhost:2345", "ignoreFailures": false },
-                { "text": "load", "ignoreFailures": false },
-                { "text": "break set_led", "ignoreFailures": false }
-            ],
-            "launchCompleteCommand": "exec-continue"
-        }
-    ]
-}
-```
+4. Click the green **Play** button (or press `F5`).
 
-### Understanding the configuration
-
-*   `miDebuggerPath`: Points to the `gdb-multiarch` binary you installed on your host.
-*   `miDebuggerServerAddress`: Tells VS Code to connect to the Docker container's exposed ports (`3333` for OpenOCD, `2345` for nios2-gdb-server).
-*   `setupCommands`: These execute automatically when the debugger attaches. They mirror the initialization scripts (`hps_debug.gdb` and `nios2_debug.gdb`) used in the command-line tutorial.
+VS Code spawns the wrapper, which starts a Docker container running the GDB client. The client connects to the GDB server, loads the `.elf` into target memory, and halts at the first breakpoint (`main` for HPS, `set_led` for Nios II).
 
 ---
 
-## Step 3 — Start the Debug Session
+## What you can do once halted
 
-Because VS Code is acting only as the *client*, you must start the GDB *server* manually before launching the debugger.
-
-### Example: Debugging the ARM HPS (Project 09)
-
-1.  **Program the FPGA:** (If not already done)
-    ```bash
-    cd 09_hps_debug/quartus
-    make program-sof
-    ```
-2.  **Start OpenOCD (The Server):**
-    In an integrated VS Code terminal, start the Dockerized OpenOCD server:
-    ```bash
-    make openocd
-    ```
-    *Leave this terminal running. Wait until you see `Listening on port 3333 for gdb connections`.*
-3.  **Launch VS Code Debugger:**
-    *   Switch to the **Run and Debug** view in the VS Code sidebar (`Ctrl+Shift+D`).
-    *   Select **Debug HPS (Project 09)** from the dropdown menu.
-    *   Click the green **Play** button (or press `F5`).
-
-VS Code will connect to the OpenOCD server, load the `.elf` binary into the HPS OCRAM, and immediately halt execution at the `main()` function.
-
-You can now use the VS Code interface to:
 *   Step over (`F10`) or step into (`F11`) functions.
 *   Inspect local variables in the **Variables** pane.
-*   Add `g_debug` to the **Watch** pane to monitor the hardware state.
-*   View the ARM exception call stack in the **Call Stack** pane.
+*   Add `g_debug` / `debug_state` to the **Watch** pane to monitor hardware state.
+*   View the call stack in the **Call Stack** pane.
 
-When you are finished, click the red **Stop** button (`Shift+F5`) in VS Code to disconnect, then press `Ctrl+C` in the terminal to shut down OpenOCD.
+When finished, click the red **Stop** button (`Shift+F5`) to disconnect, then press `Ctrl+C` in the GDB-server terminal.
 
 ---
 
@@ -137,17 +114,31 @@ When you are finished, click the red **Stop** button (`Shift+F5`) in VS Code to 
 
 ### "Unable to start debugging. Unexpected GDB output from command..."
 
-This usually means VS Code cannot connect to the server.
-*   Ensure the `make openocd` or `make gdb-server` command is running in a terminal.
-*   Verify the server has finished booting (look for the "Listening on port..." message).
-*   If you are using WSL2, ensure you are running VS Code in the WSL context (the bottom-left corner of VS Code should say "WSL: Ubuntu").
+VS Code cannot connect to the GDB server.
+*   Ensure `make openocd` or `make gdb-server` is still running in a terminal and has printed its "Listening on port…" message.
+*   Check that no other process is already using port 3333 / 2345.
 
-### "miDebuggerPath is invalid"
+### "miDebuggerPath is invalid" / wrapper script not found
 
-VS Code cannot find `gdb-multiarch`.
-*   Verify you ran `sudo apt-get install gdb-multiarch` in the same environment where the VS Code server is running.
-*   Run `which gdb-multiarch` to confirm the path is `/usr/bin/gdb-multiarch`.
+VS Code cannot find the wrapper script.
+*   Confirm the scripts exist and are executable:
+    ```bash
+    ls -l common/docker/*-gdb-wrapper.sh
+    ```
+*   If needed, restore permissions: `chmod +x common/docker/*-gdb-wrapper.sh`
+
+### Docker container fails to start (wrapper)
+
+*   Verify Docker is running: `docker info`
+*   Confirm the image is built: `docker image inspect cvsoc/quartus:23.1`
+*   If the image is missing, build it: `docker build -t cvsoc/quartus:23.1 common/docker/`
 
 ### Breakpoints aren't hitting (Nios II)
 
-The Nios II Tiny core only has one hardware breakpoint comparator, which is often consumed by the GDB server itself. Ensure your `setupCommands` in `launch.json` use software breakpoints (`break`) rather than hardware breakpoints (`hbreak`) for Nios II projects. The provided `launch.json` template already handles this correctly.
+The Nios II Tiny core has one hardware breakpoint comparator, often consumed by the GDB server itself. Use software breakpoints (`break`) rather than hardware breakpoints (`hbreak`) for Nios II. The provided `launch.json` already does this.
+
+### "gdb-multiarch cannot debug Nios II"
+
+`gdb-multiarch` on Ubuntu lacks Nios II support. Use **`Toolchain: Debug Nios II (Project 08)`** instead — it routes through `nios2-elf-gdb` inside the Docker image.
+
+
