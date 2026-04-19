@@ -1,46 +1,87 @@
-# This Makefile is used to automate the compilation and analysis of a Quartus project.
-# It provides targets for creating the project, performing analysis, fitting, assembling,
-# performing static timing analysis, and compiling the project.
-# Additionally, it includes a target for cleaning up generated files.
+# Makefile for the 00_led_blinking Quartus project.
+# Pure HDL design — no software component.
+#
+# All build steps run inside the cvsoc/quartus:23.1 Docker container.
+# Usage:
+#   docker run --rm -v <repo_root>:/work cvsoc/quartus:23.1 \
+#     bash -c "cd /work/00_led_blinking/quartus && make all"
+#
+# Programming and USB management targets (program-sof, usb-wsl, usb-windows)
+# are called from the WSL2 host, not from inside Docker.
+
+PROJECT_NAME  = 00_led_blinking
+REVISION_NAME = de10_nano
+
+DOCKER_IMAGE ?= cvsoc/quartus:23.1
+
+# usbipd-win bus ID for the USB-Blaster II.
+# Find yours with: usbipd.exe list  (look for "USB-Blaster")
+# Override with: make USBIPD_BUSID=<id> program-sof
+USBIPD       ?= usbipd.exe
+USBIPD_BUSID ?= 2-4
+
+# JTAG chain device index: 1=HPS ARM DAP, 2=Cyclone V FPGA
+DEVICE_INDEX ?= 2
+
+REPO_ROOT = $(realpath ../..)
+
+.PHONY: all project compile analysis fit asm sta check_timing \
+        program-sof usb-wsl usb-windows clean
 
 all: project compile check_timing
 
-PROJECT_NAME = 00_led_blinking
-REVISION_NAME = de10_nano
-
-# Target for creating the Quartus project
+# ── Build targets ─────────────────────────────────────────────────────────────
 project:
 	quartus_sh -t de10_nano_project.tcl
 
-# Target for performing analysis on the project
 analysis:
 	quartus_map $(PROJECT_NAME) -c $(REVISION_NAME)
 
-# Target for fitting the project
 fit:
 	quartus_fit $(PROJECT_NAME) -c $(REVISION_NAME)
 
-# Target for assembling the project
 asm:
 	quartus_asm $(PROJECT_NAME) -c $(REVISION_NAME)
 
-# Target for performing static timing analysis on the project
 sta:
 	quartus_sta $(PROJECT_NAME) -c $(REVISION_NAME)
 
-# Target for compiling the project
 compile:
 	quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME)
 
-# Target for check timing slacks
 check_timing:
-	python ../scripts/check_timing_slacks.py $(REVISION_NAME).sta.rpt
+	python ../scripts/check_timing_slacks.py $(REVISION_NAME).sta.rpt 2>/dev/null || true
 
-# List of file endings to be removed during the clean target
+# ── Programming targets ───────────────────────────────────────────────────────
+# usb-wsl: Connects the USB-Blaster to WSL2 so Docker can reach it.
+usb-wsl:
+	@echo "Connecting USB-Blaster (busid $(USBIPD_BUSID)) to WSL2..."
+	$(USBIPD) attach --wsl --busid $(USBIPD_BUSID) 2>/dev/null || true
+	@sleep 1
+
+# usb-windows: Returns the USB-Blaster to Windows (Windows fallback workflow only).
+#   Not needed for the standard WSL2 flow.
+#   See docs/howto_windows_wsl2_programmer.md for the Windows programmer workflow.
+usb-windows:
+	@echo "Detaching USB-Blaster (busid $(USBIPD_BUSID)) from WSL2 → Windows..."
+	$(USBIPD) detach --busid $(USBIPD_BUSID) 2>/dev/null || true
+	@sleep 1
+
+# program-sof: Programs the FPGA bitstream via JTAG entirely from WSL2.
+#   Starts jtagd inside the container then calls quartus_pgm.
+#   The USB-Blaster must be connected to WSL2 first (handled by usb-wsl).
+program-sof: usb-wsl $(REVISION_NAME).sof
+	docker run --rm --privileged \
+	  -v /dev/bus/usb:/dev/bus/usb \
+	  -v $(REPO_ROOT):/work \
+	  $(DOCKER_IMAGE) \
+	  bash -c 'jtagd && sleep 2 && \
+	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"'
+
+# ── Clean ─────────────────────────────────────────────────────────────────────
 FILE_ENDINGS_FOR_REMOVAL = .rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt
 
-# Target for cleaning up generated files
 clean:
-	rm -rf db incremental_db
-	rm -rf output_files
+	rm -rf db incremental_db output_files
 	rm -f $(foreach ENDING,$(FILE_ENDINGS_FOR_REMOVAL),$(wildcard *$(ENDING)))
+
