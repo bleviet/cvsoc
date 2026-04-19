@@ -1,0 +1,15 @@
+{
+    "name": "cvsoc-quartus",
+    "image": "cvsoc/quartus:23.1",
+    "runArgs": ["--privileged", "--net=host"],
+    "mounts": [
+        "source=/dev/bus/usb,target=/dev/bus/usb,type=bind",
+        "source=${localWorkspaceFolder}/common/docker/uname_shim.sh,target=/usr/local/bin/uname,type=bind,readonly"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": ["ms-vscode.cpptools"]
+        }
+    },
+    "postCreateCommand": "echo 'deb http://snapshot.debian.org/archive/debian/20220622T000000Z stretch main' > /etc/apt/sources.list && apt-get update -o Acquire::Check-Valid-Until=false -qq && apt-get install -y gcc-arm-linux-gnueabihf gdb-arm-none-eabi"
+}
