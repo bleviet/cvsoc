@@ -1,0 +1,81 @@
+{
+    "configurations": [
+        {
+            "name": "Nios II - 04_nios2_led",
+            "intelliSenseMode": "gcc-x64",
+            "compilerPath": "${workspaceFolder}/common/docker/nios2-elf-gcc-wrapper.sh",
+            "compilerArgs": [
+                "-DALT_SINGLE_THREADED=1",
+                "-DNIOS2"
+            ],
+            "includePath": [
+                "${workspaceFolder}/04_nios2_led/software/bsp",
+                "${workspaceFolder}/04_nios2_led/software/bsp/HAL/inc",
+                "${workspaceFolder}/04_nios2_led/software/bsp/drivers/inc"
+            ],
+            "defines": [
+                "ALT_SINGLE_THREADED=1",
+                "NIOS2"
+            ],
+            "cStandard": "c11",
+            "cppStandard": "c++14"
+        },
+        {
+            "name": "Nios II - 06_nios2_interrupts",
+            "intelliSenseMode": "gcc-x64",
+            "compilerPath": "${workspaceFolder}/common/docker/nios2-elf-gcc-wrapper.sh",
+            "compilerArgs": [
+                "-DALT_SINGLE_THREADED=1",
+                "-DNIOS2"
+            ],
+            "includePath": [
+                "${workspaceFolder}/06_nios2_interrupts/software/bsp",
+                "${workspaceFolder}/06_nios2_interrupts/software/bsp/HAL/inc",
+                "${workspaceFolder}/06_nios2_interrupts/software/bsp/drivers/inc"
+            ],
+            "defines": [
+                "ALT_SINGLE_THREADED=1",
+                "NIOS2"
+            ],
+            "cStandard": "c11",
+            "cppStandard": "c++14"
+        },
+        {
+            "name": "Nios II - 08_nios2_debug",
+            "intelliSenseMode": "gcc-x64",
+            "compilerPath": "${workspaceFolder}/common/docker/nios2-elf-gcc-wrapper.sh",
+            "compilerArgs": [
+                "-DALT_SINGLE_THREADED=1",
+                "-DNIOS2"
+            ],
+            "includePath": [
+                "${workspaceFolder}/08_nios2_debug/software/bsp",
+                "${workspaceFolder}/08_nios2_debug/software/bsp/HAL/inc",
+                "${workspaceFolder}/08_nios2_debug/software/bsp/drivers/inc"
+            ],
+            "defines": [
+                "ALT_SINGLE_THREADED=1",
+                "NIOS2"
+            ],
+            "cStandard": "c11",
+            "cppStandard": "c++14"
+        },
+        {
+            "name": "HPS bare-metal (05, 07, 09)",
+            "intelliSenseMode": "gcc-arm",
+            "compilerPath": "${workspaceFolder}/common/docker/arm-linux-gnueabihf-gcc-wrapper.sh",
+            "compilerArgs": [
+                "-mcpu=cortex-a9",
+                "-mfpu=neon-vfpv4",
+                "-mfloat-abi=hard",
+                "-ffreestanding",
+                "-nostdlib"
+            ],
+            "includePath": [],
+            "defines": [],
+            "cStandard": "c11",
+            "cppStandard": "c++14"
+        }
+    ],
+    "version": 4
+}
