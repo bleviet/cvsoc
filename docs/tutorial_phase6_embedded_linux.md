@@ -78,6 +78,20 @@ Install `mtools` if not already present (required by genimage for the FAT32 boot
 sudo apt-get install -y mtools
 ```
 
+> **Where do commands run?** This tutorial involves three environments. Code
+> blocks are annotated with 🖥️ **Host**, 🐳 **Docker**, or 📟 **Target** when
+> the context is not obvious from the surrounding text.
+>
+> | Environment | What | Examples |
+> |---|---|---|
+> | 🖥️ **Host** (your Linux / WSL2 machine) | Building, flashing SD card | `make buildroot`, `make app-cross`, `dd` |
+> | 🐳 **Docker** (`raetro/quartus:23.1`) | FPGA bitstream conversion only | `make rbf` (wraps `quartus_cpf`) |
+> | 📟 **Target** (DE10-Nano via serial console) | Running apps on the board | `fpga_led`, `devmem`, `dmesg` |
+>
+> `make rbf` is the **only** command that requires Docker. Everything else —
+> including `make buildroot` and `make app-cross` — runs natively on the host
+> using Buildroot's own cross-compiler (no Quartus or Docker needed).
+
 ---
 
 ## Concepts in 5 minutes
@@ -214,6 +228,7 @@ The conversion script uses `quartus_cpf -c --option=bitstream_compression=on` to
 Linux loads FPGA bitstreams in Raw Binary Format (`.rbf`), not the Quartus `.sof` format. Convert the existing bitstream from project 05:
 
 ```bash
+# 🐳 Runs quartus_cpf inside Docker — the only step that requires Docker
 cd 10_linux_led
 make rbf
 ```
@@ -237,10 +252,9 @@ This downloads and extracts Buildroot 2024.11.1 (~8 MB compressed, ~80 MB extrac
 ### 2.2 Configure and build
 
 ```bash
+# 🖥️ Host — no Docker needed; Buildroot builds its own cross-compiler
 make buildroot
 ```
-
-This single command:
 
 1. Applies the `de10_nano_defconfig` (with `BR2_EXTERNAL` pointing to `br2-external/`)
 2. Downloads and builds the ARM cross-compiler (GCC + glibc)
@@ -385,6 +399,7 @@ Log in as `root` (no password).
 BusyBox provides `devmem` for direct register access (useful for quick checks):
 
 ```bash
+# 📟 Target — run these on the DE10-Nano via serial console
 # Read current LED value
 devmem 0xFF200000
 # Expected: 0x00000000
@@ -403,6 +418,7 @@ devmem 0xFF200000 32 0x00
 ### 5.2 Run the C application
 
 ```bash
+# 📟 Target — run on the DE10-Nano
 # Cycle through all LED patterns (Ctrl+C to stop)
 fpga_led
 
@@ -445,6 +461,7 @@ Available patterns:
 ### 5.3 Run the Python script
 
 ```bash
+# 📟 Target
 # Run a pattern
 fpga_led.py --pattern chase
 
@@ -462,17 +479,17 @@ fpga_led.py --pattern breathe --speed 0.05
 One of the advantages of Linux is rapid iteration. You can recompile the C application on the host and copy it to the running board:
 
 ```bash
-# On the host: cross-compile using Buildroot's toolchain
+# 🖥️ Host — uses Buildroot's cross-compiler (no Docker needed)
 make app-cross ARM_CC=buildroot-2024.11.1/output/host/bin/arm-linux-gnueabihf-gcc
 
-# Copy to the board (if Ethernet is connected)
+# 🖥️ Host — copy to the board (if Ethernet is connected)
 scp software/fpga_led/fpga_led root@<board-ip>:/usr/bin/
 
-# Or: transfer via UART using base64
+# 🖥️ Host — or transfer via UART using base64
 cat software/fpga_led/fpga_led | base64 > /tmp/fpga_led.b64
-# On target: base64 -d /tmp/fpga_led.b64 > /usr/bin/fpga_led && chmod +x /usr/bin/fpga_led
+# 📟 Target: base64 -d /tmp/fpga_led.b64 > /usr/bin/fpga_led && chmod +x /usr/bin/fpga_led
 
-# Or: rebuild the entire image and re-flash
+# 🖥️ Host — or rebuild the entire image and re-flash
 make buildroot
 ```
 
