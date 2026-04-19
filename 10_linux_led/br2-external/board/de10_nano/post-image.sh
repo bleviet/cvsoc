@@ -113,7 +113,7 @@ if [ -x "$MKIMAGE" ]; then
 # DE10-Nano cvsoc Phase 6 boot script
 # Loaded automatically by U-Boot distro_bootcmd from the FAT partition.
 echo "=== cvsoc Phase 6 — Embedded Linux boot ==="
-setenv bootargs "root=/dev/mmcblk0p3 rootwait console=ttyS0,115200n8"
+setenv bootargs "root=/dev/mmcblk0p3 rootwait console=ttyS0,115200n8 uio_pdrv_genirq.of_id=generic-uio"
 load mmc 0:2 ${kernel_addr_r} zImage
 load mmc 0:2 ${fdt_addr_r} socfpga_cyclone5_de0_nano_soc.dtb
 bootz ${kernel_addr_r} - ${fdt_addr_r}

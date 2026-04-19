@@ -18,4 +18,4 @@ kernel_addr_r=0x01000000
 fdt_addr_r=0x02000000
 
 # Kernel command line
-bootargs=console=ttyS0,115200 root=/dev/mmcblk0p3 rootfstype=ext4 rootwait earlyprintk
+bootargs=console=ttyS0,115200 root=/dev/mmcblk0p3 rootfstype=ext4 rootwait earlyprintk uio_pdrv_genirq.of_id=generic-uio
