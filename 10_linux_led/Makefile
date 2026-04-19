@@ -78,13 +78,17 @@ $(BUILDROOT_DIR)/Makefile:
 	rm -f $(BUILDROOT_TARBALL)
 	@echo "Buildroot extracted to $(BUILDROOT_DIR)"
 
+# ── PATH sanitization (WSL2 inherits Windows paths with spaces) ───────────────
+# Buildroot rejects PATH entries containing spaces/tabs/newlines.
+CLEAN_PATH := $(shell echo "$$PATH" | tr ':' '\n' | grep -v ' ' | paste -sd:)
+
 # ── Buildroot configuration ──────────────────────────────────────────────────
 buildroot-config: $(BUILDROOT_DIR)/Makefile
-	$(MAKE) -C $(BUILDROOT_DIR) BR2_EXTERNAL=$(BR2_EXTERNAL_DIR) de10_nano_defconfig
+	PATH="$(CLEAN_PATH)" $(MAKE) -C $(BUILDROOT_DIR) BR2_EXTERNAL=$(BR2_EXTERNAL_DIR) de10_nano_defconfig
 
 # ── Buildroot full build ──────────────────────────────────────────────────────
 buildroot: buildroot-config
-	$(MAKE) -C $(BUILDROOT_DIR)
+	PATH="$(CLEAN_PATH)" $(MAKE) -C $(BUILDROOT_DIR)
 	@echo ""
 	@echo "═══════════════════════════════════════════════════════════════════"
 	@echo "  Build complete!"
