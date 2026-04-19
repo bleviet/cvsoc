@@ -10,6 +10,5 @@
         "vscode": {
             "extensions": ["ms-vscode.cpptools"]
         }
-    },
-    "postCreateCommand": "echo 'deb http://snapshot.debian.org/archive/debian/20220622T000000Z stretch main' > /etc/apt/sources.list && apt-get update -o Acquire::Check-Valid-Until=false -qq && apt-get install -y gcc-arm-linux-gnueabihf gdb-arm-none-eabi"
+    }
 }
