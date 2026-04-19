@@ -3,7 +3,7 @@
 #
 # Run inside the raetro/quartus Docker container (all tools are in PATH).
 # Usage:
-#   docker run --rm -v <repo_root>:/work raetro/quartus:23.1 \
+#   docker run --rm -v <repo_root>:/work cvsoc/quartus:23.1 \
 #     bash -c "cd /work/06_nios2_interrupts/quartus && make all"
 
 PROJECT_NAME  = 06_nios2_interrupts

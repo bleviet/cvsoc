@@ -14,7 +14,7 @@
 # If output.rbf is not specified, the output file name is derived from the
 # input by replacing the .sof extension with .rbf.
 #
-# This script is designed to run inside the raetro/quartus:23.1 Docker
+# This script is designed to run inside the cvsoc/quartus:23.1 Docker
 # container where quartus_cpf is available.
 
 set -euo pipefail

@@ -2,9 +2,9 @@
 # Orchestrates: Platform Designer generation → Quartus compile → ARM app build.
 # Adds OpenOCD server and interactive GDB debug targets on top of the 07_hps_interrupts flow.
 #
-# All steps run inside the raetro/quartus:23.1 Docker container.
+# All steps run inside the cvsoc/quartus:23.1 Docker container.
 # Usage (from repo root):
-#   docker run --rm -v $(pwd):/work raetro/quartus:23.1 \
+#   docker run --rm -v $(pwd):/work cvsoc/quartus:23.1 \
 #     bash -c "cd /work/09_hps_debug/quartus && make setup && make all"
 
 PROJECT_NAME  = 09_hps_debug

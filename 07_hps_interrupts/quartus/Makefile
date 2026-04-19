@@ -1,9 +1,9 @@
 # Makefile for the 07_hps_interrupts Quartus project.
 # Orchestrates: Platform Designer generation → Quartus compile → ARM app build.
 #
-# All steps run inside the raetro/quartus:23.1 Docker container.
+# All steps run inside the cvsoc/quartus:23.1 Docker container.
 # Usage (from repo root):
-#   docker run --rm -v $(pwd):/work raetro/quartus:23.1 \
+#   docker run --rm -v $(pwd):/work cvsoc/quartus:23.1 \
 #     bash -c "cd /work/07_hps_interrupts/quartus && make setup && make all"
 #
 # The 'setup' target installs the ARM cross-compiler from the Debian snapshot

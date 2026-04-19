@@ -7,7 +7,7 @@
 # Usage (from repo root):
 #   cd 10_linux_led && make all
 #
-# The FPGA bitstream conversion runs inside the raetro/quartus:23.1 Docker
+# The FPGA bitstream conversion runs inside the cvsoc/quartus:23.1 Docker
 # container.  The Buildroot build runs on the host (requires ~4 GB disk,
 # ~30 min on first build).
 #
