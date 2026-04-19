@@ -428,6 +428,10 @@ Running pattern: chase (speed: 100 ms, Ctrl+C to stop)
 LEDs turned off. Goodbye.
 ```
 
+> **Stale-image check:** if `fpga_led` instead prints `Error: cannot open /dev/uio0` or
+> suggests `modprobe uio_pdrv_genirq`, you are booted into an older Phase 6 image from
+> before the `/dev/mem` rewrite. Reflash the current `sdcard.img`.
+
 Available patterns:
 
 | Pattern | Description |
@@ -611,6 +615,21 @@ The LW H2F bridge is not enabled. This can happen if:
 1. **FPGA is not programmed** — `fpga_load.ko` failed to load or the S30 init script didn't run
 2. **Bridge resets not released** — Check `dmesg | grep fpga_load` for the "LW H2F bridge enabled" message
 3. **fpga_load.ko not found** — Verify `/lib/modules/$(uname -r)/fpga_load.ko` exists
+4. **You are running an older flashed image** — Older Phase 6 images still contain the UIO-based
+   `fpga_led` binary and predate the final bridge-enable fixes
+
+If you see both of these together:
+
+- `fpga_led` fails with `cannot open /dev/uio0`
+- `devmem 0xFF200000` ends in `Bus error`
+
+then the most likely root cause is that the board is still booting an older SD card image. The
+current Phase 6 image uses `/dev/mem`, prints `FPGA LED controller — /dev/mem @ 0xFF200000`, and
+boots with the corrected FPGA/bridge sequence. Reflash:
+
+```bash
+sudo dd if=10_linux_led/buildroot-2024.11.1/output/images/sdcard.img of=/dev/sdX bs=4M status=progress conv=fsync
+```
 
 To manually enable the bridge (after FPGA is programmed):
 ```bash
