@@ -1,0 +1,10 @@
+config BR2_PACKAGE_FPGA_LED
+	bool "fpga-led"
+	help
+	  User-space application that controls FPGA LEDs on the DE10-Nano
+	  board via the UIO (Userspace I/O) driver.
+
+	  The application maps the LED PIO peripheral registers through
+	  /dev/uioX and cycles through LED patterns.
+
+	  https://github.com/bleviet/cvsoc

@@ -1,0 +1,39 @@
+/*
+ * Device tree overlay for the FPGA LED PIO peripheral on DE10-Nano.
+ *
+ * This overlay adds a UIO (Userspace I/O) device node for the 8-bit LED
+ * PIO Avalon-MM slave connected to the Lightweight HPS-to-FPGA bridge.
+ *
+ * The LED PIO occupies 16 bytes (4 × 32-bit registers) at offset 0x0000
+ * from the Lightweight bridge base address (0xFF200000):
+ *
+ *   Offset  Register          Description
+ *   ------  ----------------  -------------------------------------------
+ *   0x00    DATA              Write: LED pattern (bits [7:0])
+ *   0x04    DIRECTION         (not used — output-only PIO)
+ *   0x08    IRQ_MASK          (not used — no IRQ on this PIO)
+ *   0x0C    EDGE_CAPTURE      (not used — no edge capture on this PIO)
+ *
+ * Usage:
+ *   1. Compile:  dtc -I dts -O dtb -@ -o fpga_led_overlay.dtbo fpga_led_overlay.dts
+ *   2. Copy to target: cp fpga_led_overlay.dtbo /lib/firmware/
+ *   3. Apply at runtime (if configfs is mounted):
+ *        mkdir -p /sys/kernel/config/device-tree/overlays/fpga-led
+ *        cat fpga_led_overlay.dtbo > /sys/kernel/config/device-tree/overlays/fpga-led/dtbo
+ *
+ * Alternatively, the overlay can be applied by U-Boot before booting Linux.
+ */
+
+/dts-v1/;
+/plugin/;
+
+&base_fpga_region {
+	#address-cells = <0x1>;
+	#size-cells = <0x1>;
+
+	fpga_led: led-controller@ff200000 {
+		compatible = "generic-uio";
+		reg = <0xff200000 0x10>;
+		status = "okay";
+	};
+};

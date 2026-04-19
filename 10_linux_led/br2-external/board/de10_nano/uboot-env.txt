@@ -1,0 +1,21 @@
+# U-Boot environment for DE10-Nano (cvsoc Phase 6)
+#
+# This file documents the U-Boot boot commands. The default U-Boot
+# environment for socfpga_de10_nano already boots from SD card, but
+# these settings can be used as a reference or loaded manually.
+#
+# To use: at the U-Boot prompt, run:
+#   fatload mmc 0:1 ${loadaddr} uboot-env.txt
+#   env import -t ${loadaddr} ${filesize}
+#   saveenv
+
+# Boot from SD card FAT partition
+bootcmd=run sdboot
+sdboot=mmc dev 0; fatload mmc 0:1 ${kernel_addr_r} zImage; fatload mmc 0:1 ${fdt_addr_r} socfpga_cyclone5_de0_nano_soc.dtb; bootz ${kernel_addr_r} - ${fdt_addr_r}
+
+# Kernel and DTB load addresses (standard for socfpga)
+kernel_addr_r=0x01000000
+fdt_addr_r=0x02000000
+
+# Kernel command line
+bootargs=console=ttyS0,115200 root=/dev/mmcblk0p3 rootfstype=ext4 rootwait earlyprintk

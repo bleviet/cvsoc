@@ -725,6 +725,6 @@ The LW H2F bridge must be released from reset before the LED PIO is accessible. 
 
 ## Next steps
 
-- **Phase 6 — Embedded Linux:** Boot Buildroot Linux on the HPS. Debug Linux applications and kernel modules with GDB over Ethernet using `gdbserver`.
+- **Phase 6 — Embedded Linux:** Boot Buildroot Linux on the HPS and control FPGA LEDs from user-space via the UIO driver framework. See `docs/tutorial_phase6_embedded_linux.md`.
 - **Advanced GDB scripting:** Extend `nios2_debug.gdb` and `hps_debug.gdb` with `define` commands and automatic logging of `g_debug` on every watchpoint fire.
 - **Interrupt latency measurement:** Use a GPIO toggle inside the ISR and a logic analyser to measure the round-trip time from button press to ISR entry — compare with GDB step counts.

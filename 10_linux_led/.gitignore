@@ -1,0 +1,18 @@
+# Buildroot output
+buildroot/
+buildroot-*/
+
+# Generated images
+output/
+*.img
+
+# FPGA bitstream (generated from 05_hps_led SOF)
+*.rbf
+
+# Device tree blobs (compiled from DTS sources)
+dts/*.dtbo
+
+# Editor / OS junk
+*~
+*.swp
+.DS_Store
