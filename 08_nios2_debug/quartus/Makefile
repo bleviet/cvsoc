@@ -18,13 +18,16 @@ SOPCINFO      = ../qsys/nios2_system.sopcinfo
 BSP_DIR       = ../software/bsp
 APP_DIR       = ../software/app
 
-# Windows Quartus Programmer (callable from WSL2 via interop).
-QUARTUS_PGM  ?= /mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe
-
 DOCKER_IMAGE ?= cvsoc/quartus:23.1
 
 USBIPD       ?= usbipd.exe
 USBIPD_BUSID ?= 2-4
+
+# JTAG chain device index: 1=HPS ARM DAP, 2=Cyclone V FPGA
+DEVICE_INDEX ?= 2
+
+REPO_ROOT  = $(realpath ../..)
+UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
 
 # Nios II GDB server port
 GDB_PORT     ?= 2345
@@ -73,27 +76,31 @@ check_timing:
 	python ../../00_led_blinking/scripts/check_timing_slacks.py $(REVISION_NAME).sta.rpt 2>/dev/null || true
 
 # ── USB-Blaster attach/detach ─────────────────────────────────────────────────
+# usb-wsl: Connects the USB-Blaster to WSL2 so Docker can reach it.
+usb-wsl:
+	@echo "Connecting USB-Blaster (busid $(USBIPD_BUSID)) to WSL2..."
+	$(USBIPD) attach --wsl --busid $(USBIPD_BUSID) 2>/dev/null || true
+	@sleep 1
+
+# usb-windows: Returns the USB-Blaster to Windows (Windows fallback workflow only).
+#   See docs/howto_windows_wsl2_programmer.md for the Windows programmer workflow.
 usb-windows:
 	@echo "Detaching USB-Blaster (busid $(USBIPD_BUSID)) from WSL2 → Windows..."
 	$(USBIPD) detach --busid $(USBIPD_BUSID) 2>/dev/null || true
 	@sleep 1
 
-usb-wsl:
-	@echo "Attaching USB-Blaster (busid $(USBIPD_BUSID)) to WSL2..."
-	$(USBIPD) attach --wsl --busid $(USBIPD_BUSID) 2>/dev/null || true
-	@sleep 1
-
 # ── Program FPGA ──────────────────────────────────────────────────────────────
-SOF_WIN_TMP := /mnt/c/Windows/Temp
-program-sof: usb-windows $(REVISION_NAME).sof
-	cp $(REVISION_NAME).sof $(SOF_WIN_TMP)/$(REVISION_NAME).sof
-	$(QUARTUS_PGM) -m jtag -o "p;C:\Windows\Temp\$(REVISION_NAME).sof@2"
-	@$(MAKE) --no-print-directory usb-wsl
+# program-sof: Programs the FPGA bitstream via JTAG entirely from WSL2.
+#   Starts jtagd inside the container then calls quartus_pgm.
+program-sof: usb-wsl $(REVISION_NAME).sof
+	docker run --rm --privileged \
+	  -v /dev/bus/usb:/dev/bus/usb \
+	  -v $(REPO_ROOT):/work \
+	  $(DOCKER_IMAGE) \
+	  bash -c 'jtagd && sleep 2 && \
+	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"'
 
 # ── Download ELF (run without debugger) ──────────────────────────────────────
-REPO_ROOT  = $(realpath ../..)
-UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
-
 download-elf: usb-wsl $(APP_DIR)/nios2_debug.elf
 	docker run --rm --privileged \
 	  -v $(REPO_ROOT):/work \

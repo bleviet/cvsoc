@@ -15,7 +15,9 @@ By the end of this tutorial you will be able to, from a single terminal in WSL2:
 - **Load and run the HPS bare-metal application** (`05_hps_led`) into ARM OCRAM via JTAG
 - **Understand why** each tool must run where it does, so you can troubleshoot confidently
 
-The build environment for this series uses a Docker container (`cvsoc/quartus:23.1`) running inside WSL2. This creates a challenge: the USB-Blaster II cable that connects your PC to the DE10-Nano can only be owned by **one consumer at a time** — either the Windows host (for `quartus_pgm.exe`) or the WSL2/Docker environment (for `nios2-download` and `openocd`).
+The entire workflow — FPGA programming, firmware loading, and debugging — runs inside the `cvsoc/quartus:23.1` Docker container. You do not need Quartus installed on Windows or any Windows-side tools. A single `make program-sof` followed by `make download-elf` is all that is required after attaching the USB-Blaster to WSL2 once per session.
+
+> **Need the Windows programmer instead?** See [How-to: Program the DE10-Nano from Windows when working in WSL2](howto_windows_wsl2_programmer.md).
 
 This tutorial walks you through the full workflow, step by step.
 
@@ -28,8 +30,7 @@ This tutorial walks you through the full workflow, step by step.
 | **Board** | Terasic DE10-Nano connected via USB (USB-Blaster II built-in) |
 | **Built files** | `04_nios2_led/quartus/de10_nano.sof` and/or `05_hps_led/quartus/de10_nano.sof` |
 | **Built ELFs** | `04_nios2_led/software/app/nios2_led.elf` and/or `05_hps_led/software/app/hps_led.elf` |
-| **Docker** | `cvsoc/quartus:23.1` image available locally |
-| **Windows Quartus Programmer** | `quartus_pgm.exe` accessible at `/mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe` |
+| **Docker** | `cvsoc/quartus:23.1` image available locally (includes `quartus_pgm`, `jtagd`, `nios2-download`, `openocd`) |
 | **usbipd-win** | Installed on Windows (see Step 1) |
 | **Repository** | `git clone` of `bleviet/cvsoc` with Phases 2 and 3 complete |
 
@@ -46,44 +47,38 @@ ls 05_hps_led/software/app/hps_led.bin   # raw binary needed for OCRAM loading
 
 ---
 
-## The problem in two minutes
+## The toolchain in two minutes
 
-Understanding the constraint saves you debugging time later.
+Understanding how the tools connect saves you debugging time later.
 
-### The toolchain is split across three environments
+### Everything runs in Docker
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  Windows host                                                     │
-│  quartus_pgm.exe ─────────────────────────────────┐             │
-│  (FPGA bitstream programmer)                       │             │
-└────────────────────────────────────────────────────┼─────────────┘
-                                                     │
-┌────────────────────────────────────────────────────┼─────────────┐
-│  WSL2 kernel (shared with Docker containers)        │             │
-│                                                     │             │
-│  ┌──────────────────────┐   ┌──────────────────┐   │             │
-│  │  Docker container    │   │  WSL2 shell      │   │             │
-│  │  cvsoc/quartus:23.1 │   │  usbipd attach/  │   │             │
-│  │  nios2-download      │   │  detach          │   │             │
-│  │  openocd (jtagd)     │   └──────────────────┘   │             │
-│  └──────────────────────┘                          │             │
-└────────────────────────────────────────────────────┼─────────────┘
-                                                     │ USB-Blaster II
-                                              ┌──────▼──────┐
-                                              │  DE10-Nano  │
-                                              │  JTAG chain │
-                                              └─────────────┘
+│  WSL2 kernel (shared with Docker containers)                      │
+│                                                                   │
+│  ┌──────────────────────────────────────┐  ┌──────────────────┐  │
+│  │  Docker container                     │  │  WSL2 shell      │  │
+│  │  cvsoc/quartus:23.1                  │  │  usbipd attach/  │  │
+│  │  quartus_pgm   ← FPGA bitstream       │  │  detach          │  │
+│  │  nios2-download ← Nios II ELF         │  └──────────────────┘  │
+│  │  openocd (jtagd) ← HPS binary         │                        │
+│  └────────────────────┬─────────────────┘                        │
+└───────────────────────┼──────────────────────────────────────────┘
+                        │ USB-Blaster II (via --privileged + /dev/bus/usb)
+                 ┌──────▼──────┐
+                 │  DE10-Nano  │
+                 │  JTAG chain │
+                 └─────────────┘
 ```
 
-### The ownership conflict
+### One cable, always in WSL2
 
-The USB-Blaster II is a physical USB device. Windows and WSL2 cannot share it simultaneously:
+The USB-Blaster II is attached to WSL2 via `usbipd-win` at the start of a session and stays there. The Docker container accesses it with `--privileged -v /dev/bus/usb:/dev/bus/usb`. No USB hand-off to Windows is required.
 
-- When the cable is **not shared** via `usbipd-win`, Windows sees it → `quartus_pgm.exe` works, Docker cannot reach it.
-- When the cable is **attached** to WSL2 via `usbipd-win`, Docker with `--privileged` sees it → `nios2-download` and `openocd` work, Windows cannot see it.
+### Why jtagd must start first
 
-The Makefiles handle this automatically. Each target calls `usbipd.exe detach` or `usbipd.exe attach --wsl` as needed before running its tool, so you can call `make program-sof` and `make download-elf` back-to-back without any manual cable management.
+`quartus_pgm` and Intel's `openocd` both rely on `jtagd` — the Altera JTAG daemon — to locate and communicate with the USB-Blaster. The `program-sof` and `download-elf` targets start `jtagd` inside the container automatically before any programming or loading command runs.
 
 ### Why nios2-download cannot run bare in Docker
 
@@ -93,15 +88,15 @@ The fix is `common/docker/uname_shim.sh`: a tiny `uname` wrapper that strips `mi
 
 ### Why Intel's OpenOCD uses aji_client, not usb_blaster
 
-The `openocd` binary bundled with `cvsoc/quartus:23.1` is Intel's own build. It does not include the generic `usb_blaster` driver. Instead it exposes only `aji_client` — an interface that speaks to a running `jtagd` (Altera JTAG daemon) over a local socket.
-
-The `make download-elf` target for Phase 3 therefore starts `jtagd` first, waits for it to initialise, then runs `openocd`.
+The `openocd` binary bundled with `cvsoc/quartus:23.1` is Intel's own build. It does not include the generic `usb_blaster` driver. Instead it exposes only `aji_client` — an interface that speaks to a running `jtagd` over a local socket. The `make download-elf` target for Phase 3 therefore starts `jtagd` first, waits for it to initialise, then runs `openocd`.
 
 ---
 
-## Step 1 — Install usbipd-win
+## Step 1 — Attach the USB-Blaster to WSL2
 
-`usbipd-win` is a Windows service that lets WSL2 access USB devices. Install it once; it persists across reboots.
+`usbipd-win` is a Windows service that lets WSL2 access USB devices. The USB-Blaster must be attached to WSL2 once per session before any programming or loading can take place.
+
+### Install usbipd-win (if not already done)
 
 Open a **Windows PowerShell (Administrator)** and run:
 
@@ -109,60 +104,63 @@ Open a **Windows PowerShell (Administrator)** and run:
 winget install --interactive --exact dorssel.usbipd-win
 ```
 
-After installation, close and reopen PowerShell. Confirm the service is running:
+After installation, close and reopen PowerShell. Bind the USB-Blaster once so it can be attached without Administrator rights each time:
 
 ```powershell
+# Find your BUSID (look for "Altera" or VID 09FB):
 usbipd list
-```
 
-You should see your USB-Blaster II in the output. Look for `Altera` in the description or VID `09FB`:
-
-```
-BUSID  VID:PID    DEVICE                         STATE
-2-4    09fb:6010  USB-Blaster II                 Not shared
-```
-
-Note your `BUSID` (e.g. `2-4`). You will use it in every session.
-
-Pre-share the device so WSL2 can attach it without Administrator rights each time:
-
-```powershell
+# Bind the device (run once; persists across reboots):
 usbipd bind --busid 2-4
 ```
 
-After binding, `usbipd list` shows `Shared` in the STATE column.
+### Attach the USB-Blaster to WSL2
+
+At the start of each session, from WSL2:
+
+```bash
+# Replace 2-4 with your BUSID
+make usb-wsl -C 04_nios2_led/quartus USBIPD_BUSID=2-4
+
+# Or set it once for the whole shell session:
+export USBIPD_BUSID=2-4
+make usb-wsl -C 04_nios2_led/quartus
+```
+
+After attaching, verify Docker can see the USB-Blaster:
+
+```bash
+docker run --rm --privileged -v /dev/bus/usb:/dev/bus/usb cvsoc/quartus:23.1 \
+  bash -c 'jtagd && sleep 2 && jtagconfig'
+```
+
+Expected output:
+```
+1) DE-SoC [1-1]
+  4BA00477   SOCVHPS
+  02D020DD   5CSEBA6(.|ES)/5CSEMA6/..
+```
+
+If `jtagconfig` shows "No JTAG hardware available", the USB-Blaster is not yet attached — see [Troubleshooting](#troubleshooting).
 
 ---
 
 ## Step 2 — Understand the JTAG chain
 
-To see the devices in the JTAG chain, you can use the `jtagconfig` utility. From WSL2, you can run this command inside the Docker container (ensuring the USB-Blaster is attached via `usbipd` first):
-
-```bash
-docker run --rm --privileged -v /dev/bus/usb:/dev/bus/usb cvsoc/quartus:23.1 jtagconfig
-```
-
-**Expected output:**
-```
-1) DE-SoC [1-1]                               
-  4BA00477   SOCVHPS
-  02D020DD   5CSEBA6(.|ES)/5CSEMA6/..
-```
-
-The output confirms that the DE10-Nano exposes two devices on a single JTAG scan chain via the USB-Blaster II:
+The `jtagconfig` utility reports the devices visible on the JTAG scan chain. You already verified this in Step 1. For reference:
 
 | Position | Device | ID Code | Purpose |
 |---|---|---|---|
 | `@1` | HPS ARM DAP | `0x4BA00477` | Debug access port for the Cortex-A9 |
 | `@2` | Cyclone V FPGA | `0x02D020DD` | FPGA configuration and Nios II JTAG |
 
-`quartus_pgm.exe` targets `@2` to program the FPGA bitstream. `nios2-download` and `openocd` both talk to `@1` (HPS DAP) or `@2` (Nios II JTAG) depending on the design.
+`quartus_pgm` targets `@2` to program the FPGA bitstream. `nios2-download` and `openocd` both talk to `@1` (HPS DAP) or `@2` (Nios II JTAG) depending on the design.
 
 ---
 
 ## Step 3 — Program the FPGA
 
-This step uses `quartus_pgm.exe` on the Windows side. The Makefile automatically detaches the USB-Blaster from WSL2 before programming and re-attaches it afterwards.
+`quartus_pgm` runs inside the `cvsoc/quartus:23.1` Docker container. The Makefile starts `jtagd`, waits for it to initialise, then calls `quartus_pgm`.
 
 ```bash
 # For Phase 2 (Nios II LED)
@@ -175,30 +173,22 @@ make program-sof -C 05_hps_led/quartus
 Expected output:
 
 ```
-Info (213045): Use File /windows/temp/de10_nano.sof for device 2
+Info (213045): Use File /work/04_nios2_led/quartus/de10_nano.sof for device 2
 Info (209060): Started Programmer operation at ...
 Info (209016): Configuring device index 2
 Info (209011): Successfully performed operation(s)
 Info (209061): Ended Programmer operation at ...
 ```
 
-> **What the Makefile does:** It copies the `.sof` to `C:\Windows\Temp\` first, then calls `quartus_pgm.exe` with a native Windows path (`C:\Windows\Temp\de10_nano.sof@2`). This is necessary because `quartus_pgm.exe` rejects UNC paths of the form `\\wsl.localhost\Ubuntu\...` that `wslpath -w` would otherwise produce.
-
 The FPGA is now configured. The `CONF_DONE` LED on the DE10-Nano should be lit.
+
+> **Need to use the Windows programmer instead?** See [How-to: Program from Windows](howto_windows_wsl2_programmer.md).
 
 ---
 
 ## Step 4 — Load and run the Nios II application (04_nios2_led)
 
-This step uses `nios2-download` inside Docker. The USB-Blaster must be **attached to WSL2**.
-
 ### 4.1 Download and start the ELF
-
-The Makefile automatically attaches the USB-Blaster to WSL2 before running `nios2-download`.
-
-```bash
-make download-elf -C 04_nios2_led/quartus
-```
 
 Expected output:
 
@@ -268,22 +258,25 @@ The ARM Cortex-A9 is now executing the LED firmware from OCRAM. You should see t
 ┌──────────────────────────────────────────────────────────────────┐
 │  For each development session:                                    │
 │                                                                   │
-│  1. Build   →  make compile / make app (inside Docker)           │
+│  0. Attach USB  → make usb-wsl (once per session)                 │
 │                                                                   │
-│  2. Program FPGA + load app (fully automatic):                    │
-│     make program-sof    ← detaches cable, programs, re-attaches  │
-│     make download-elf   ← attaches cable, loads ELF/BIN, runs    │
+│  1. Build       → make compile / make app (inside Docker)         │
+│                                                                   │
+│  2. Program + run (all inside Docker, USB stays in WSL2):         │
+│     make program-sof    ← programs FPGA via Docker quartus_pgm    │
+│     make download-elf   ← loads ELF/BIN via Docker tools          │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 Quick-reference table:
 
-| Target | Cable managed automatically | What it does |
+| Target | USB requirement | What it does |
 |---|---|---|
-| `program-sof` | detach → Windows → re-attach to WSL2 | Programs FPGA via `quartus_pgm.exe` |
-| `download-elf` (Nios II) | attach to WSL2 | Loads ELF via `nios2-download` in Docker |
-| `download-elf` (HPS) | attach to WSL2 | Loads binary via OpenOCD in Docker |
-| `terminal` (Nios II) | attach to WSL2 | Opens JTAG UART console |
+| `usb-wsl` | — | Attaches USB-Blaster to WSL2 (`usbipd attach`) |
+| `program-sof` | Attached to WSL2 | Programs FPGA via `quartus_pgm` in Docker |
+| `download-elf` (Nios II) | Attached to WSL2 | Loads ELF via `nios2-download` in Docker |
+| `download-elf` (HPS) | Attached to WSL2 | Loads binary via OpenOCD in Docker |
+| `terminal` (Nios II) | Attached to WSL2 | Opens JTAG UART console |
 
 Override the bus ID if yours differs from `2-4`:
 
@@ -295,15 +288,28 @@ make program-sof USBIPD_BUSID=3-1 -C 04_nios2_led/quartus
 
 ## Troubleshooting
 
-### `quartus_pgm.exe` reports "Cable not detected"
+### `jtagconfig` shows "No JTAG hardware available"
 
-The USB-Blaster is attached to WSL2. Detach it first:
+The USB-Blaster is not yet attached to WSL2. Attach it:
 
 ```bash
-usbipd.exe detach --busid 2-4
+make usb-wsl -C 04_nios2_led/quartus USBIPD_BUSID=2-4
 ```
 
-Then retry `make program-sof`.
+Then verify:
+
+```bash
+docker run --rm --privileged -v /dev/bus/usb:/dev/bus/usb cvsoc/quartus:23.1 \
+  bash -c 'jtagd && sleep 2 && jtagconfig'
+```
+
+### `quartus_pgm` reports "No device detected" inside Docker
+
+`jtagd` inside the container cannot find the USB-Blaster. Common causes:
+
+1. **USB-Blaster not attached to WSL2** — run `make usb-wsl` first.
+2. **Container not started with `--privileged`** — the Makefile's `program-sof` target already includes this. If running Docker manually, add `--privileged -v /dev/bus/usb:/dev/bus/usb`.
+3. **Board powered off** — the USB-Blaster II is bus-powered but needs the DE10-Nano to be on for the JTAG chain to be valid.
 
 ### `nios2-download` reports "No JTAG cables available"
 

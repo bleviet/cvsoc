@@ -17,11 +17,6 @@ SOPCINFO      = ../qsys/nios2_system.sopcinfo
 BSP_DIR       = ../software/bsp
 APP_DIR       = ../software/app
 
-# Windows Quartus Programmer (callable from WSL2 via interop — no extra setup).
-# Override with: make QUARTUS_PGM=<path> program-sof
-QUARTUS_PGM  ?= /mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe
-
-# Docker image that contains nios2-download / nios2-terminal.
 DOCKER_IMAGE ?= cvsoc/quartus:23.1
 
 # usbipd-win bus ID for the USB-Blaster II.
@@ -29,6 +24,12 @@ DOCKER_IMAGE ?= cvsoc/quartus:23.1
 # Override with: make USBIPD_BUSID=<id> program-sof
 USBIPD       ?= usbipd.exe
 USBIPD_BUSID ?= 2-4
+
+# JTAG chain device index: 1=HPS ARM DAP, 2=Cyclone V FPGA
+DEVICE_INDEX ?= 2
+
+REPO_ROOT  = $(realpath ../..)
+UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
 
 .PHONY: all qsys project compile bsp app clean \
         program-sof download-elf terminal usb-windows usb-wsl
@@ -74,31 +75,33 @@ check_timing:
 	python ../../00_led_blinking/scripts/check_timing_slacks.py $(REVISION_NAME).sta.rpt 2>/dev/null || true
 
 # ── Programming & debug targets ──────────────────────────────────────────────
-# usb-windows: Detaches the USB-Blaster from WSL2 so Windows can see it.
+# usb-wsl: Connects the USB-Blaster to WSL2 so Docker can reach it.
+usb-wsl:
+	@echo "Connecting USB-Blaster (busid $(USBIPD_BUSID)) to WSL2..."
+	$(USBIPD) attach --wsl --busid $(USBIPD_BUSID) 2>/dev/null || true
+	@sleep 1
+
+# usb-windows: Returns the USB-Blaster to Windows (Windows fallback workflow only).
+#   Not needed for the standard WSL2 flow.
+#   See docs/howto_windows_wsl2_programmer.md for the Windows programmer workflow.
 usb-windows:
 	@echo "Detaching USB-Blaster (busid $(USBIPD_BUSID)) from WSL2 → Windows..."
 	$(USBIPD) detach --busid $(USBIPD_BUSID) 2>/dev/null || true
 	@sleep 1
 
-# usb-wsl: Attaches the USB-Blaster to WSL2 so Docker can reach it.
-usb-wsl:
-	@echo "Attaching USB-Blaster (busid $(USBIPD_BUSID)) to WSL2..."
-	$(USBIPD) attach --wsl --busid $(USBIPD_BUSID) 2>/dev/null || true
-	@sleep 1
-
-# program-sof: Detaches USB-Blaster from WSL2, programs the FPGA via Windows
-#   quartus_pgm.exe, then re-attaches so download-elf can follow immediately.
-#   The .sof is copied to C:\Windows\Temp first to avoid UNC-path issues.
-SOF_WIN_TMP := /mnt/c/Windows/Temp
-program-sof: usb-windows $(REVISION_NAME).sof
-	cp $(REVISION_NAME).sof $(SOF_WIN_TMP)/$(REVISION_NAME).sof
-	$(QUARTUS_PGM) -m jtag -o "p;C:\Windows\Temp\$(REVISION_NAME).sof@2"
-	@$(MAKE) --no-print-directory usb-wsl
+# program-sof: Programs the FPGA bitstream via JTAG entirely from WSL2.
+#   Starts jtagd inside the container then calls quartus_pgm.
+#   The USB-Blaster must be connected to WSL2 first (handled by usb-wsl).
+program-sof: usb-wsl $(REVISION_NAME).sof
+	docker run --rm --privileged \
+	  -v /dev/bus/usb:/dev/bus/usb \
+	  -v $(REPO_ROOT):/work \
+	  $(DOCKER_IMAGE) \
+	  bash -c 'jtagd && sleep 2 && \
+	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"'
 
 # download-elf: Downloads the Nios II ELF to the soft-core via JTAG and starts it.
 #   The uname_shim prevents nios2-download from detecting WSL inside Docker.
-REPO_ROOT = $(realpath ../..)
-UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
 download-elf: usb-wsl $(APP_DIR)/nios2_led.elf
 	docker run --rm --privileged \
 	  -v $(REPO_ROOT):/work \
