@@ -7,20 +7,28 @@ Intel `aji_client` JTAG interface.
 
 ## Architecture
 
-```
-           ┌──────────────────────────────────────────────────────────────┐
-           │                   hps_system (Platform Designer)              │
-           │                                                                │
-FPGA_CLK1_50 ──► HPS Cortex-A9 (single core, bare-metal)                  │
-                    │  ├── GIC (PPI/SPI interrupts)                        │
-                    │  ├── OCRAM (64 KB @ 0xFFFF0000) ◄── ELF loaded      │
-                    │  └── HPS-to-FPGA LW bridge                           │
-                    │           ├── LED PIO (8-bit @ 0xFF200000)           │
-                    │           └── button_pio (2-bit @ 0xFF201000)        │
-                    │                    ▲  IRQ72 (f2h_irq0[0])            │
-                    │           KEY[1:0] ┘                                  │
-                    └── JTAG DAP ──► OpenOCD (port 3333) ──► GDB client
-           └──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    CLK[FPGA_CLK1_50] --> HPS
+    
+    subgraph hps_system [hps_system <br/> Platform Designer]
+        direction TB
+        HPS[HPS Cortex-A9 <br/> single core, bare-metal]
+        HPS --> GIC[GIC <br/> PPI/SPI interrupts]
+        HPS --> OCRAM[OCRAM <br/> 64 KB @ 0xFFFF0000]
+        HPS --> LW_BRIDGE[HPS-to-FPGA LW bridge]
+        LW_BRIDGE --> LED[LED PIO <br/> 8-bit @ 0xFF200000]
+        LW_BRIDGE --> BTN[button_pio <br/> 2-bit @ 0xFF201000]
+        
+        BTN -.->|IRQ72 <br/> f2h_irq0 0| GIC
+        
+        HPS --> JTAG[JTAG DAP]
+    end
+    
+    ELF[ELF loaded] -.-> OCRAM
+    KEY[KEY 1:0] --> BTN
+    JTAG --> OPENOCD[OpenOCD <br/> port 3333]
+    OPENOCD --> GDB[GDB client]
 ```
 
 ### HPS memory map

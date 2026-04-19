@@ -13,32 +13,27 @@ from source by **Buildroot** in a single `make` command.
 
 ## What you will build
 
-```
- ┌─────────────────────────────────────────────────────────────────────┐
- │                    Cyclone V SoC                                     │
- │                                                                      │
- │  ┌──────────────────────┐   LW H2F Bridge   ┌───────────────────┐   │
- │  │  ARM Cortex-A9 (HPS) │ ◄────────────────► │  LED PIO (FPGA)  │   │
- │  │                      │   0xFF200000        │  8-bit output    │   │
- │  │  Linux 6.6           │                    └──────┬────────────┘   │
- │  │  │                   │                           │                │
- │  │  ├─ fpga_load.ko  ──────► FPGA Mgr regs ────► FPGA CONFIG       │
- │  │  │  (programs FPGA)  │   (direct access)                         │
- │  │  │                   │                                            │
- │  │  └─ /dev/mem mmap ───────────────────────────► LED PIO regs    │
- │  │     (0xFF200000)     │                                            │
- │  │                      │                                            │
- │  │  fpga_led (app) ──────────────────────────────► LED patterns    │
- │  └──────────────────────┘                                            │
- │                                                                      │
- │  SD card boot: BootROM → U-Boot SPL → U-Boot → Linux               │
- └─────────────────────────────────────────────────────────────────────┘
-                                        │
-                               LED[7:0] │
-                                   ┌────▼────┐
-                                   │ DE10-Nano│
-                                   │  board   │
-                                   └──────────┘
+```mermaid
+flowchart LR
+    subgraph SoC [Cyclone V SoC]
+        subgraph HPS [ARM Cortex-A9 HPS <br/> Linux 6.6]
+            APP[fpga_led app] --> MMAP[/dev/mem mmap <br/> 0xFF200000]
+            MODULE[fpga_load.ko <br/> programs FPGA]
+        end
+        
+        subgraph FPGA [FPGA Fabric]
+            MGR[FPGA Mgr regs] --> CONFIG[FPGA CONFIG]
+            LED_REGS[LED PIO regs] --> LED_PIO[LED PIO <br/> 8-bit output]
+        end
+        
+        MODULE -->|direct access| MGR
+        MMAP -->|LW H2F Bridge| LED_REGS
+        APP -.->|LED patterns| LED_PIO
+        
+        BOOT[SD card boot: <br/> BootROM --> U-Boot SPL --> U-Boot --> Linux]
+    end
+    
+    LED_PIO -->|LED 7:0| BOARD[DE10-Nano board]
 ```
 
 **After completing this tutorial you will be able to:**

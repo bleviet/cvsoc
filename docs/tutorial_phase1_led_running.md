@@ -30,20 +30,11 @@ By the end of this tutorial you will have:
 
 ## The design at a glance
 
-```
-                      fpga_clk1_50 (50 MHz)
-                             │
-                    ┌────────▼───────────┐
-                    │ power_on_reset      │  asserts rst for 1 ms on boot
-                    │ _generator          │
-                    └────────┬───────────┘
-                             │
-                    ┌────────▼───────────┐
-                    │   led_running       │  1 Hz shift register
-                    │   8-bit register    │  wraps at MSB
-                    └────────┬───────────┘
-                             │
-                          LED[7:0]
+```mermaid
+flowchart TD
+    CLK[fpga_clk1_50 <br/> 50 MHz] --> RST[power_on_reset <br/> _generator <br/> asserts rst for 1 ms on boot]
+    RST --> RUN[led_running <br/> 8-bit register <br/> 1 Hz shift register <br/> wraps at MSB]
+    RUN --> LED[LED 7:0]
 ```
 
 Where Phase 0 used eight independent identical instances (one per LED), Phase 1 uses a **single module** that holds all eight LED states in one register and shifts the lit bit one position per clock period.

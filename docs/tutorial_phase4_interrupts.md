@@ -14,40 +14,52 @@ This phase covers two standalone projects that each add **interrupt-driven push-
 
 A Nios II soft-core system where pressing KEY[0] or KEY[1] generates an interrupt. A HAL-registered ISR responds to each press — rotating the LED pattern or showing a press counter — without any polling in the main loop.
 
-```
-           ┌──────────────────────────────────────────────────────────────┐
-           │                 nios2_system (Platform Designer)              │
-           │                                                                │
-FPGA_CLK1_50 ──► clk_bridge ──► nios2 CPU                                │
-                              ├──► on-chip RAM (32 KB)    0x00000000      │
-                              ├──► JTAG UART              0x00010100  IRQ 0│
-                              ├──► System ID              0x00010108       │
-                              ├──► LED PIO (8-bit output) 0x00010010 ──► LED[7:0]
-                              └──► button_pio (2-bit in)  0x00010020  IRQ 1│
-                                       ▲                                   │
-                              KEY[1:0] ┘                                   │
-           └──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    CLK[FPGA_CLK1_50] --> CLK_BRIDGE[clk_bridge]
+    
+    subgraph nios2_system [nios2_system <br/> Platform Designer]
+        direction LR
+        CLK_BRIDGE --> CPU[nios2 CPU]
+        CPU --> RAM[on-chip RAM <br/> 32 KB @ 0x00000000]
+        CPU --> UART[JTAG UART <br/> @ 0x00010100]
+        CPU --> SYSID[System ID <br/> @ 0x00010108]
+        CPU --> LED[LED PIO <br/> 8-bit output @ 0x00010010]
+        CPU --> BTN[button_pio <br/> 2-bit in @ 0x00010020]
+        
+        UART -.->|IRQ 0| CPU
+        BTN -.->|IRQ 1| CPU
+    end
+    
+    LED --> LED_OUT[LED 7:0]
+    KEY[KEY 1:0] --> BTN
 ```
 
 **Project 07 — ARM HPS hardware interrupt (bare-metal GIC)**
 
 The same button-press behaviour on the ARM Cortex-A9 HPS, using the ARM Generic Interrupt Controller. The push-button PIO in the FPGA fabric drives an FPGA-to-HPS interrupt line, which the GIC routes to the CPU as exception ID 72.
 
-```
-                  ┌──────────────────────────────────────────────────────────┐
-                  │       Cyclone V FPGA Fabric                               │
-KEY[1:0] ──► button_pio ──► irq ──► hps_0.f2h_irq0[0] ──► GIC SPI[40]     │
-                  │                                                            │
-                  │ LW H2F Bridge (0xFF200000)                                 │
-LED[7:0] ◄── led_pio ◄── AXI ◄───────────────────────── Cortex-A9           │
-                  └──────────────────────────────────────────────────────────┘
-                                  │
-                      ┌───────────▼──────────────────────┐
-                      │  Cortex-A9 SVC mode               │
-                      │  IRQ → irq_entry (startup.S)      │
-                      │    → irq_c_handler() (main.c)     │
-                      │    → GICC_EOIR                     │
-                      └──────────────────────────────────┘
+```mermaid
+flowchart LR
+    KEY[KEY 1:0] --> BTN
+    
+    subgraph FPGA [Cyclone V FPGA Fabric]
+        direction LR
+        BTN[button_pio] -->|irq| F2H[hps_0.f2h_irq0 0]
+        F2H --> GIC[GIC SPI 40]
+        
+        LED_PIO[led_pio]
+        AXI[AXI <br/> LW H2F Bridge 0xFF200000] --> LED_PIO
+    end
+    
+    LED_PIO --> LED_OUT[LED 7:0]
+    CPU[Cortex-A9] --> AXI
+    GIC --> ARM
+    
+    subgraph ARM [Cortex-A9 SVC mode]
+        direction TB
+        HANDLER["IRQ --> irq_entry (startup.S) <br/> --> irq_c_handler() (main.c) <br/> --> GICC_EOIR"]
+    end
 ```
 
 Every step — hardware generation, bitstream compilation, and firmware build — is driven from the command line inside a Docker container. No GUI required.
@@ -812,3 +824,4 @@ If the main loop runs but interrupts never fire, check in order:
 3. **GIC ID correct?** F2H IRQ line 0 maps to SPI[40] = GIC ID 72. Verify `BUTTON_GIC_IRQ` is `72` in `main.c`.
 4. **`cpsie i` called?** IRQs are disabled at startup; `main()` must call `cpsie i` after `gic_init()`.
 5. **Edge-capture cleared at startup?** Stale edges before reset can prevent the PIO from asserting a fresh IRQ. `button_pio_init()` writes `0x3` to the edge-capture register to flush them.
+

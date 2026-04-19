@@ -7,19 +7,25 @@ without polling, leaving the main loop free for other work.
 
 ## Architecture
 
-```
-           ┌──────────────────────────────────────────────────────────────┐
-           │                 nios2_system (Platform Designer)              │
-           │                                                                │
-FPGA_CLK1_50 ──► clk_bridge ──► nios2 CPU (Nios II/e, Tiny)              │
-                              ├──► on-chip RAM (32 KB, code+data)         │
-                              ├──► JTAG UART (printf / debug)  IRQ 0 ──┐  │
-                              ├──► System ID                            │  │
-                              ├──► LED PIO (8-bit output) ──► LED[7:0] │  │
-                              └──► button_pio (2-bit input)  IRQ 1 ──┘  │
-                                       ▲                                  │
-                              KEY[1:0] ┘                                  │
-           └──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    CLK[FPGA_CLK1_50] --> CLK_BRIDGE[clk_bridge]
+    
+    subgraph nios2_system [nios2_system <br/> Platform Designer]
+        direction LR
+        CLK_BRIDGE --> CPU[nios2 CPU <br/> Nios II/e, Tiny]
+        CPU --> RAM[on-chip RAM <br/> 32 KB, code+data]
+        CPU --> UART[JTAG UART <br/> printf / debug]
+        CPU --> SYSID[System ID]
+        CPU --> LED[LED PIO <br/> 8-bit output]
+        CPU --> BTN[button_pio <br/> 2-bit input]
+        
+        UART -.->|IRQ 0| CPU
+        BTN -.->|IRQ 1| CPU
+    end
+    
+    LED --> LED_OUT[LED 7:0]
+    KEY[KEY 1:0] --> BTN
 ```
 
 The button PIO is configured in **edge-capture** mode: the falling edge of a

@@ -7,21 +7,27 @@ dispatched to a bare-metal C interrupt handler running on the Cortex-A9.
 
 ## Architecture
 
-```
-                      ┌─────────────────────────────────────────────────┐
-                      │       Cyclone V FPGA Fabric                      │
-KEY[1:0] ──► button_pio ──► irq ──► f2h_irq0[0] ──► GIC SPI[40]        │
-                      │                                                   │
-                      │ LW H2F Bridge (0xFF200000)                        │
-LED[7:0] ◄── led_pio ◄── AXI ◄───────────────────── Cortex-A9           │
-                      └─────────────────────────────────────────────────┘
-                                          │
-                              ┌───────────▼──────────────┐
-                              │  Cortex-A9 (SVC mode)     │
-                              │  IRQ received → irq_entry │
-                              │  → irq_c_handler()        │
-                              │  → GICC_EOIR (end of int) │
-                              └──────────────────────────┘
+```mermaid
+flowchart LR
+    KEY[KEY 1:0] --> BTN
+    
+    subgraph FPGA [Cyclone V FPGA Fabric]
+        direction LR
+        BTN[button_pio] -->|irq| F2H[f2h_irq0 0]
+        F2H --> GIC[GIC SPI 40]
+        
+        LED_PIO[led_pio]
+        AXI[AXI <br/> LW H2F Bridge 0xFF200000] --> LED_PIO
+    end
+    
+    LED_PIO --> LED_OUT[LED 7:0]
+    CPU[Cortex-A9] --> AXI
+    GIC --> ARM
+    
+    subgraph ARM [Cortex-A9 SVC mode]
+        direction TB
+        HANDLER["IRQ received --> irq_entry <br/> --> irq_c_handler() <br/> --> GICC_EOIR (end of int)"]
+    end
 ```
 
 ### Interrupt routing chain

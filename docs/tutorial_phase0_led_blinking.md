@@ -41,23 +41,17 @@ docker build -t cvsoc/quartus:23.1 common/docker/
 
 ## The design at a glance
 
-```
-                      fpga_clk1_50 (50 MHz)
-                             │
-                    ┌────────▼───────────┐
-                    │ power_on_reset      │  asserts rst for 1 ms on boot
-                    │ _generator          │
-                    └────────┬───────────┘
-                             │ power_on_reset
-                             │
-         ┌───────────────────┼───────────────────┐
-         │                   │                   │
-   ┌─────▼──────┐      ┌─────▼──────┐     ┌─────▼──────┐
-   │led_blinking│  ×8  │led_blinking│ ... │led_blinking│   (one per LED)
-   │  (1 Hz)    │      │  (1 Hz)    │     │  (1 Hz)    │
-   └─────┬──────┘      └─────┬──────┘     └─────┬──────┘
-         │                   │                   │
-       LED[0]             LED[1] ...           LED[7]
+```mermaid
+flowchart TD
+    CLK[fpga_clk1_50 <br/> 50 MHz] --> RST[power_on_reset <br/> _generator <br/> asserts rst for 1 ms on boot]
+    
+    RST -->|power_on_reset| BLINK0[led_blinking <br/> 1 Hz]
+    RST -->|power_on_reset| BLINK1[led_blinking <br/> 1 Hz]
+    RST -->|power_on_reset| BLINK7[led_blinking <br/> 1 Hz]
+    
+    BLINK0 --> LED0[LED 0]
+    BLINK1 --> LED1[LED 1]
+    BLINK7 --> LED7[LED 7]
 ```
 
 Each `led_blinking` instance divides the 50 MHz clock by 25,000,000 to produce a 1 Hz toggle.

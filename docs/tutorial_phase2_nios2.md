@@ -18,16 +18,20 @@ By the end of this tutorial you will have a **complete embedded system** running
 
 Every step — hardware generation, FPGA compilation, BSP creation, firmware build — is driven from the command line. No GUI required.
 
-```
-           ┌──────────────────────────────────────────────────────┐
-           │                 nios2_system (Platform Designer)       │
-           │                                                         │
-FPGA_CLK1_50 ──► clk_bridge ──► Nios II/e CPU                      │
-                              ├──► On-chip RAM  (32 KB)  0x00000000 │
-                              ├──► JTAG UART             0x00010100 │
-                              ├──► System ID             0x00010108 │
-                              └──► LED PIO (8-bit out)   0x00010010 ──► LED[7:0]
-           └──────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    CLK[FPGA_CLK1_50] --> CLK_BRIDGE[clk_bridge]
+    
+    subgraph nios2_system [nios2_system <br/> Platform Designer]
+        direction LR
+        CLK_BRIDGE --> CPU[Nios II/e CPU]
+        CPU --> RAM[On-chip RAM <br/> 32 KB @ 0x00000000]
+        CPU --> UART[JTAG UART <br/> @ 0x00010100]
+        CPU --> SYSID[System ID <br/> @ 0x00010108]
+        CPU --> LED[LED PIO <br/> 8-bit out @ 0x00010010]
+    end
+    
+    LED --> LED_OUT[LED 7:0]
 ```
 
 ---

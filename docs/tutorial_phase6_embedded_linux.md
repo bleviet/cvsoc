@@ -16,34 +16,31 @@ By the end of this tutorial you will boot a complete embedded Linux system on th
 - A **Python script** (`fpga_led.py`) demonstrates the same register access using Python's `mmap` module
 - A **genimage** configuration produces a ready-to-flash SD card image containing the U-Boot SPL, kernel, device tree, FPGA bitstream, and root filesystem
 
-```
-           SD card (sdcard.img)
-           ┌─────────────────────────────────────────────────────────────────┐
- Partition │ 1: type 0xA2    │ 2: FAT32 (boot)    │ 3: ext4 (rootfs)       │
-           │ U-Boot SPL      │ zImage              │ /usr/bin/fpga_led      │
-           │ (preloader)     │ DTB                 │ /usr/bin/fpga_led.py   │
-           │                 │ u-boot.img          │ /lib/firmware/de10*.rbf│
-           │                 │ de10_nano.rbf        │ /lib/modules/.../      │
-           │                 │ extlinux.conf        │   fpga_load.ko         │
-           └─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph SD [SD card <br/> sdcard.img]
+        direction LR
+        P1["Partition 1: type 0xA2 <br/> U-Boot SPL <br/> (preloader)"]
+        P2["Partition 2: FAT32 (boot) <br/> zImage <br/> DTB <br/> u-boot.img <br/> de10_nano.rbf <br/> extlinux.conf"]
+        P3["Partition 3: ext4 (rootfs) <br/> /usr/bin/fpga_led <br/> /usr/bin/fpga_led.py <br/> /lib/firmware/de10*.rbf <br/> /lib/modules/.../fpga_load.ko"]
+    end
 
-           Boot sequence
-           ┌─────────────┐    ┌──────────────┐    ┌────────────────────────┐
-           │ Cyclone V    │──►│ U-Boot SPL   │──►│ U-Boot                  │
-           │ BootROM      │   │ (partition 1) │   │ loads zImage + DTB     │
-           └─────────────┘    └──────────────┘    │ from FAT32 partition   │
-                                                   └────────┬───────────────┘
-                                                            │
-                                                            ▼
-           ┌─────────────────────────────────────────────────────────────────┐
-           │                     Linux kernel                                │
-           │                                                                 │
-           │  Init script S30fpga_load:                                      │
-           │    modprobe fpga_load  → programs FPGA + enables LW bridge     │
-           │                          │                                      │
-           │  User space:    fpga_led ──► mmap(/dev/mem) ──► LED PIO regs   │
-           │                                   @ 0xFF200000                  │
-           └─────────────────────────────────────────────────────────────────┘
+    subgraph BOOT [Boot sequence]
+        direction LR
+        ROM[Cyclone V <br/> BootROM] --> SPL[U-Boot SPL <br/> partition 1]
+        SPL --> UBOOT["U-Boot <br/> loads zImage + DTB <br/> from FAT32 partition"]
+    end
+    
+    subgraph LINUX [Linux kernel]
+        direction TB
+        INIT["Init script S30fpga_load: <br/> modprobe fpga_load <br/> programs FPGA + enables LW bridge"]
+        APP["User space: fpga_led <br/> mmap(/dev/mem) <br/> @ 0xFF200000"]
+        REGS["LED PIO regs"]
+        INIT --> APP
+        APP --> REGS
+    end
+    
+    UBOOT --> LINUX
 ```
 
 The FPGA design is reused unchanged from project 05 (`05_hps_led`). The only new artefact is the Buildroot-based Linux system.

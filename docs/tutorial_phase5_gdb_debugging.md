@@ -14,38 +14,57 @@ This phase covers two standalone projects that each add **source-level GDB debug
 
 The Nios II debug unit exposes a JTAG bridge that `nios2-gdb-server` converts into a GDB remote-serial-protocol endpoint. `nios2-elf-gdb` connects over TCP, loads the ELF, and gives you a full interactive debugging session — breakpoints, watchpoints, register inspection, memory reads, backtraces.
 
-```
-           ┌─────────────────────────────────────────────────────────────────┐
-           │              nios2_system (Platform Designer)                    │
-           │                                                                   │
-FPGA_CLK1_50 ──► clk_bridge ──► Nios II/e CPU                               │
-                              ├──► on-chip RAM (32 KB)   0x00000000  ← ELF   │
-                              ├──► JTAG UART             0x00010100  IRQ 0   │
-                              ├──► LED PIO (8-bit)       0x00010010          │
-                              └──► button_pio (2-bit)    0x00010020  IRQ 1   │
-           └─────────────────────────────────────────────────────────────────┘
-                        │
-             JTAG USB ──┤──► nios2-gdb-server :2345
-                        │             │
-                        │    nios2-elf-gdb ──► (gdb) prompt
+```mermaid
+flowchart LR
+    CLK[FPGA_CLK1_50] --> CLK_BRIDGE[clk_bridge]
+    
+    subgraph nios2_system [nios2_system <br/> Platform Designer]
+        direction LR
+        CLK_BRIDGE --> CPU[Nios II/e CPU]
+        CPU --> RAM[on-chip RAM <br/> 32 KB @ 0x00000000]
+        CPU --> UART[JTAG UART <br/> @ 0x00010100]
+        CPU --> LED[LED PIO <br/> 8-bit @ 0x00010010]
+        CPU --> BTN[button_pio <br/> 2-bit @ 0x00010020]
+        
+        UART -.->|IRQ 0| CPU
+        BTN -.->|IRQ 1| CPU
+    end
+    
+    ELF[ELF] -.-> RAM
+    
+    JTAG[JTAG USB] --> nios2_system
+    JTAG --> GDB_SERVER[nios2-gdb-server <br/> :2345]
+    GDB_SERVER --> GDB[nios2-elf-gdb]
+    GDB --> PROMPT["(gdb) prompt"]
 ```
 
 **Project 09 — ARM HPS debugging via OpenOCD**
 
 Intel's OpenOCD build uses the `aji_client` interface (the same JTAG stack as Quartus) to connect to the ARM DAP in the Cyclone V HPS. OpenOCD exposes a GDB server on port 3333. `arm-none-eabi-gdb` connects, loads the ELF into OCRAM, and gives you hardware breakpoints, watchpoints, and direct register access.
 
-```
-           ┌───────────────────────────────────────────────────────────────────┐
-           │            Cyclone V — HPS + FPGA Fabric                          │
-           │                                                                     │
-FPGA_CLK1_50 ──► HPS Cortex-A9 ──► GIC ──► irq_c_handler() (bare-metal)      │
-                    │  └── OCRAM (64 KB @ 0xFFFF0000) ◄── ELF loaded via GDB  │
-                    │  └── LW H2F bridge (0xFF200000)                          │
-                    │         ├── LED PIO  (0xFF200000)                         │
-                    │         └── button_pio (0xFF201000)                       │
-                    │                          ↑ KEY[1:0]                       │
-                    └── ARM DAP ──► OpenOCD :3333 ──► arm-none-eabi-gdb       │
-           └───────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    CLK[FPGA_CLK1_50] --> HPS
+    
+    subgraph CycloneV [Cyclone V - HPS + FPGA Fabric]
+        direction TB
+        HPS[HPS Cortex-A9] --> GIC[GIC]
+        GIC --> IRQ[irq_c_handler <br/> bare-metal]
+        
+        HPS --> OCRAM[OCRAM <br/> 64 KB @ 0xFFFF0000]
+        HPS --> LW_BRIDGE[LW H2F bridge <br/> 0xFF200000]
+        
+        LW_BRIDGE --> LED[LED PIO <br/> 0xFF200000]
+        LW_BRIDGE --> BTN[button_pio <br/> 0xFF201000]
+        
+        KEY[KEY 1:0] --> BTN
+        
+        HPS --> DAP[ARM DAP]
+    end
+    
+    ELF[ELF loaded via GDB] -.-> OCRAM
+    DAP --> OPENOCD[OpenOCD :3333]
+    OPENOCD --> GDB[arm-none-eabi-gdb]
 ```
 
 Every step — bitstream programming, firmware build, GDB server startup, and GDB client launch — is driven from the command line inside Docker. No GUI interaction is required at any point.

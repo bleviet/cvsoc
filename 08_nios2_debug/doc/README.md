@@ -6,22 +6,30 @@ so that all variables, structs, and call frames are visible to GDB.
 
 ## Architecture
 
-```
-           ┌──────────────────────────────────────────────────────────────┐
-           │                 nios2_system (Platform Designer)              │
-           │                                                                │
-FPGA_CLK1_50 ──► clk_bridge ──► nios2 CPU (Nios II/e)                    │
-                              ├──► on-chip RAM (32 KB)   ◄── ELF loaded   │
-                              ├──► JTAG UART             IRQ 0            │
-                              ├──► LED PIO (8-bit)  ──► LED[7:0]          │
-                              └──► button_pio (2-bit)    IRQ 1            │
-                                       ▲                                   │
-                              KEY[1:0] ┘                                   │
-           └──────────────────────────────────────────────────────────────┘
-                                         │
-                              JTAG USB ──┤── nios2-gdb-server (port 2345)
-                                         │         │
-                                         │    nios2-elf-gdb ─► GDB prompt
+```mermaid
+flowchart LR
+    CLK[FPGA_CLK1_50] --> CLK_BRIDGE[clk_bridge]
+    
+    subgraph nios2_system [nios2_system <br/> Platform Designer]
+        direction LR
+        CLK_BRIDGE --> CPU[nios2 CPU <br/> Nios II/e]
+        CPU --> RAM[on-chip RAM <br/> 32 KB]
+        CPU --> UART[JTAG UART]
+        CPU --> LED[LED PIO <br/> 8-bit]
+        CPU --> BTN[button_pio <br/> 2-bit]
+        
+        UART -.->|IRQ 0| CPU
+        BTN -.->|IRQ 1| CPU
+    end
+    
+    ELF[ELF loaded] -.-> RAM
+    LED --> LED_OUT[LED 7:0]
+    KEY[KEY 1:0] --> BTN
+    
+    JTAG[JTAG USB] --> nios2_system
+    JTAG --> GDB_SERVER[nios2-gdb-server <br/> port 2345]
+    GDB_SERVER --> GDB[nios2-elf-gdb]
+    GDB --> PROMPT[GDB prompt]
 ```
 
 ### Memory map

@@ -18,25 +18,26 @@ By the end of this tutorial you will have a complete HPS bare-metal embedded sys
 
 Every step is driven from the command line inside a Docker container. No GUI required.
 
-```
-                 ┌────────────────────────────────────────────────────────┐
-                 │                hps_system (Platform Designer)           │
-                 │                                                         │
-FPGA_CLK1_50 ──►│─ clk_0 (50 MHz) ──────────────────────┐                │
-                 │                                        │                │
-                 │  ┌──────────────────────┐              ▼                │
-                 │  │  HPS (ARM Cortex-A9) │◄──── h2f_lw_axi_clock        │
-                 │  │                      │                               │
-                 │  │  OCRAM  0xFFFF0000   │   LW H2F AXI bridge          │
-                 │  │  (64 KB, code+stack) │   base: 0xFF200000           │
-                 │  │                      │──────────────────────────────►│
-                 │  │  SYSMGR  0xFFD08000  │                LED PIO slave  │
-                 │  │  RSTMGR  0xFFD05000  │                0xFF200000    ──► LED[7:0]
-                 │  └──────────────────────┘                               │
-                 │                                                         │
-                 │  DDR3 controller ──────────────────────────────────────►│── memory_mem_*
-                 └────────────────────────────────────────────────────────┘
-                                                                      (HPS hard pins)
+```mermaid
+flowchart LR
+    CLK[FPGA_CLK1_50] --> CLK_0
+    
+    subgraph hps_system [hps_system <br/> Platform Designer]
+        direction TB
+        CLK_0[clk_0 <br/> 50 MHz] -->|h2f_lw_axi_clock| HPS
+        
+        subgraph HPS [HPS <br/> ARM Cortex-A9]
+            OCRAM[OCRAM <br/> 0xFFFF0000 <br/> 64 KB, code+stack]
+            SYSMGR[SYSMGR <br/> 0xFFD08000]
+            RSTMGR[RSTMGR <br/> 0xFFD05000]
+        end
+        
+        HPS -->|LW H2F AXI bridge <br/> base: 0xFF200000| LED[LED PIO slave <br/> 0xFF200000]
+        DDR3[DDR3 controller]
+    end
+    
+    LED --> LED_OUT[LED 7:0]
+    DDR3 --> PINS[memory_mem_* <br/> HPS hard pins]
 ```
 
 ---

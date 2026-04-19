@@ -53,23 +53,25 @@ Understanding how the tools connect saves you debugging time later.
 
 ### Everything runs in Docker
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  WSL2 kernel (shared with Docker containers)                      │
-│                                                                   │
-│  ┌──────────────────────────────────────┐  ┌──────────────────┐  │
-│  │  Docker container                     │  │  WSL2 shell      │  │
-│  │  cvsoc/quartus:23.1                  │  │  usbipd attach/  │  │
-│  │  quartus_pgm   ← FPGA bitstream       │  │  detach          │  │
-│  │  nios2-download ← Nios II ELF         │  └──────────────────┘  │
-│  │  openocd (jtagd) ← HPS binary         │                        │
-│  └────────────────────┬─────────────────┘                        │
-└───────────────────────┼──────────────────────────────────────────┘
-                        │ USB-Blaster II (via --privileged + /dev/bus/usb)
-                 ┌──────▼──────┐
-                 │  DE10-Nano  │
-                 │  JTAG chain │
-                 └─────────────┘
+```mermaid
+flowchart TD
+    subgraph WSL2 [WSL2 kernel <br/> shared with Docker containers]
+        direction LR
+        subgraph DOCKER [Docker container <br/> cvsoc/quartus:23.1]
+            direction TB
+            PGM[quartus_pgm <br/> FPGA bitstream]
+            NIOS[nios2-download <br/> Nios II ELF]
+            OOCD[openocd jtagd <br/> HPS binary]
+        end
+        
+        subgraph SHELL [WSL2 shell]
+            USBIPD[usbipd attach/detach]
+        end
+    end
+    
+    BOARD[DE10-Nano <br/> JTAG chain]
+    
+    DOCKER -->|USB-Blaster II <br/> via --privileged + /dev/bus/usb| BOARD
 ```
 
 ### One cable, always in WSL2
@@ -254,18 +256,22 @@ The ARM Cortex-A9 is now executing the LED firmware from OCRAM. You should see t
 
 ## Summary of the full session workflow
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  For each development session:                                    │
-│                                                                   │
-│  0. Attach USB  → make usb-wsl (once per session)                 │
-│                                                                   │
-│  1. Build       → make compile / make app (inside Docker)         │
-│                                                                   │
-│  2. Program + run (all inside Docker, USB stays in WSL2):         │
-│     make program-sof    ← programs FPGA via Docker quartus_pgm    │
-│     make download-elf   ← loads ELF/BIN via Docker tools          │
-└──────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph SESSION [For each development session]
+        direction TB
+        S0["0. Attach USB --> make usb-wsl <br/> (once per session)"]
+        S1["1. Build --> make compile / make app <br/> (inside Docker)"]
+        
+        subgraph RUN [2. Program + run <br/> all inside Docker, USB stays in WSL2]
+            direction TB
+            P["make program-sof <br/> programs FPGA via Docker quartus_pgm"]
+            D["make download-elf <br/> loads ELF/BIN via Docker tools"]
+        end
+        
+        S0 --> S1
+        S1 --> RUN
+    end
 ```
 
 Quick-reference table:
