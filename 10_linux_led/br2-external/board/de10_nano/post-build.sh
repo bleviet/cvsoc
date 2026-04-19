@@ -26,7 +26,7 @@ if [ -f "$RBF_FILE" ]; then
     echo "post-build.sh: de10_nano.rbf installed to /lib/firmware/"
 else
     echo "post-build.sh: WARNING — de10_nano.rbf not found at ${RBF_FILE}"
-    echo "  Run: quartus_cpf -c --option=bitstream_compression=off de10_nano.sof de10_nano.rbf"
+    echo "  Run: quartus_cpf -c --option=bitstream_compression=on de10_nano.sof de10_nano.rbf"
 fi
 
 # Install S30fpga_load init script to program FPGA and enable bridge at boot

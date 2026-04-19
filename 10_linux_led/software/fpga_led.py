@@ -2,18 +2,21 @@
 """
 fpga_led.py — Control FPGA LEDs on the DE10-Nano using mmap.
 
-Demonstrates direct register access from Python via /dev/uio0 (UIO driver)
-or /dev/mem (requires root, works without device tree overlay).
+Demonstrates direct register access from Python via /dev/mem.
 
 Usage:
-    fpga_led.py                       # Default: cycle LED patterns via UIO
+    fpga_led.py                       # Default: cycle LED patterns via /dev/mem
     fpga_led.py --value 0xAA          # Set a specific LED pattern
     fpga_led.py --pattern chase       # Run a named animation
-    fpga_led.py --devmem              # Use /dev/mem instead of /dev/uio0
+    fpga_led.py --uio                 # Use /dev/uio0 instead of /dev/mem
     fpga_led.py --help                # Show usage
 
 The LED PIO is an Altera Avalon PIO peripheral on the Lightweight HPS-to-FPGA
 bridge.  Its DATA register is at physical address 0xFF200000.
+
+Note: the FPGA must be programmed and the LW H2F bridge must be enabled before
+running this script. Both are handled by the fpga_load kernel module loaded
+via /etc/init.d/S30fpga_load at boot.
 """
 
 import argparse
@@ -148,11 +151,11 @@ PATTERNS = {
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Control FPGA LEDs on the DE10-Nano via UIO or /dev/mem.")
+        description="Control FPGA LEDs on the DE10-Nano via /dev/mem or UIO.")
+    parser.add_argument("--uio", action="store_true",
+                        help="Use /dev/uio0 instead of /dev/mem (requires device tree overlay)")
     parser.add_argument("--device", "-d", default="/dev/uio0",
-                        help="UIO device path (default: /dev/uio0)")
-    parser.add_argument("--devmem", action="store_true",
-                        help="Use /dev/mem instead of UIO (requires root)")
+                        help="UIO device path (only used with --uio, default: /dev/uio0)")
     parser.add_argument("--value", "-v", type=lambda x: int(x, 0),
                         help="Set a static LED pattern (hex, e.g. 0xAA)")
     parser.add_argument("--pattern", "-p", default="all",
@@ -166,19 +169,21 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     try:
-        if args.devmem:
-            print(f"Opening /dev/mem (LED PIO at 0x{LED_PIO_ADDR:08X})...")
-            fd, mem = open_devmem()
-        else:
+        if args.uio:
             print(f"Opening {args.device}...")
             fd, mem = open_uio(args.device)
+        else:
+            print(f"Opening /dev/mem (LED PIO at 0x{LED_PIO_ADDR:08X})...")
+            fd, mem = open_devmem()
     except OSError as e:
         print(f"Error: {e}", file=sys.stderr)
-        if not args.devmem:
+        if args.uio:
             print("Hint: ensure the device tree overlay is applied and "
                   "the UIO driver is loaded.", file=sys.stderr)
-            print("  Alternatively, use --devmem for /dev/mem access (requires root).",
+        else:
+            print("Hint: ensure the FPGA is programmed and the LW H2F bridge is enabled.",
                   file=sys.stderr)
+            print("  Check: dmesg | grep fpga_load", file=sys.stderr)
         sys.exit(1)
 
     print(f"Current LED value: 0x{led_read(mem):02X}")
