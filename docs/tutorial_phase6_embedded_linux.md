@@ -371,6 +371,10 @@ Log in as `root` (no password).
 > - `fpga_load: CONF_DONE!` — FPGA programmed successfully
 > - `fpga_load: LW H2F bridge enabled` — bridge is up, registers accessible
 > - If you see `TIMEOUT - CONF_DONE never asserted`, see [Troubleshooting](#troubleshooting)
+>
+> **If your current SD card stops in U-Boot instead:** type `run distro_bootcmd` at the
+> `=>` prompt. Older images were built before the U-Boot fragment-path fix below, so
+> they do not auto-boot even though the rest of the Linux image is fine.
 
 ---
 
@@ -580,7 +584,9 @@ MSEL `0x0A` = Fast Passive Parallel ×32 with AES + Decompression. The decompres
 
 **Symptom:** U-Boot prints its banner but does not automatically load Linux.
 
-**Root cause:** The U-Boot `socfpga_de10_nano` defconfig has `# CONFIG_USE_BOOTCOMMAND is not set`.
+**Root cause:** The stock U-Boot `socfpga_de10_nano` defconfig leaves `CONFIG_USE_BOOTCOMMAND`
+unset, and the original Buildroot defconfig in this repo pointed at the wrong external-tree
+variable, so `uboot.fragment` was not applied.
 
 **Workaround (manual boot):** At the `=>` prompt, type:
 ```
@@ -593,9 +599,9 @@ CONFIG_USE_BOOTCOMMAND=y
 CONFIG_BOOTCOMMAND="run distro_bootcmd"
 ```
 
-If auto-boot still doesn't work after a clean build, verify the fragment path in `de10_nano_defconfig`:
+The original bug was a wrong external-tree variable in `de10_nano_defconfig`. The correct setting is:
 ```
-BR2_TARGET_UBOOT_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_CVSOC_PATH)/board/de10_nano/uboot.fragment"
+BR2_TARGET_UBOOT_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_DE10_NANO_PATH)/board/de10_nano/uboot.fragment"
 ```
 
 ### `devmem 0xFF200000` returns bus error
