@@ -1,11 +1,11 @@
 /*
- * fpga_led.c — User-space FPGA LED controller via UIO on DE10-Nano.
+ * fpga_led.c — User-space FPGA LED controller for DE10-Nano.
  *
- * Controls the 8 on-board LEDs through the FPGA LED PIO peripheral using
- * the Linux UIO (Userspace I/O) framework.  The LED PIO is mapped into
- * user space via mmap() on /dev/uioX.
+ * Controls the 8 on-board LEDs through the FPGA LED PIO peripheral.
+ * The LED PIO register is accessed via /dev/mem mmap at the LW H2F
+ * bridge address (0xFF200000).
  *
- * The LED PIO DATA register is at offset 0x00 from the UIO mapping base.
+ * The LED PIO DATA register is at offset 0x00 from the bridge base.
  * Writing an 8-bit value to this register directly controls the 8 LEDs.
  *
  * Usage:
@@ -37,11 +37,9 @@
 #define PIO_IRQ_MASK_OFFSET  0x08
 #define PIO_EDGE_CAP_OFFSET  0x0C
 
-/* UIO mapping size — one page minimum, covers all 4 PIO registers */
-#define UIO_MAP_SIZE         0x1000
-
-/* Default UIO device path */
-#define DEFAULT_UIO_DEV      "/dev/uio0"
+/* LW H2F bridge physical base address on Cyclone V SoC */
+#define LWH2F_BASE           0xFF200000
+#define MAP_SIZE             0x1000
 
 /* Number of LEDs on the DE10-Nano board */
 #define NUM_LEDS             8
@@ -57,11 +55,10 @@ static void signal_handler(int sig)
 static void usage(const char *progname)
 {
     printf("Usage: %s [OPTIONS] [PATTERN]\n\n", progname);
-    printf("Control FPGA LEDs on the DE10-Nano via UIO.\n\n");
+    printf("Control FPGA LEDs on the DE10-Nano via /dev/mem.\n\n");
     printf("Arguments:\n");
     printf("  PATTERN            Hex value (e.g. 0xAA) to set on LEDs\n\n");
     printf("Options:\n");
-    printf("  -d, --device DEV   UIO device path (default: %s)\n", DEFAULT_UIO_DEV);
     printf("  -p, --pattern NAME Run a named animation:\n");
     printf("                       chase    - running light\n");
     printf("                       breathe  - fill and drain\n");
@@ -166,7 +163,6 @@ static void pattern_all(volatile uint32_t *base, int speed_ms)
 
 int main(int argc, char *argv[])
 {
-    const char *uio_dev = DEFAULT_UIO_DEV;
     const char *pattern_name = NULL;
     uint8_t static_value = 0;
     int set_static = 0;
@@ -177,8 +173,6 @@ int main(int argc, char *argv[])
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             usage(argv[0]);
             return 0;
-        } else if ((strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--device") == 0) && i + 1 < argc) {
-            uio_dev = argv[++i];
         } else if ((strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--pattern") == 0) && i + 1 < argc) {
             pattern_name = argv[++i];
         } else if ((strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--speed") == 0) && i + 1 < argc) {
@@ -191,22 +185,20 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* Open the UIO device */
-    int fd = open(uio_dev, O_RDWR | O_SYNC);
+    /* Open /dev/mem for physical memory access */
+    int fd = open("/dev/mem", O_RDWR | O_SYNC);
     if (fd < 0) {
-        fprintf(stderr, "Error: cannot open %s: %s\n", uio_dev, strerror(errno));
-        fprintf(stderr, "Hint: ensure the device tree overlay is applied and "
-                        "the generic-uio driver is loaded.\n");
-        fprintf(stderr, "  modprobe uio_pdrv_genirq\n");
+        fprintf(stderr, "Error: cannot open /dev/mem: %s\n", strerror(errno));
+        fprintf(stderr, "Hint: run as root or with appropriate permissions.\n");
         return 1;
     }
 
-    /* Map the UIO device registers into user space */
+    /* Map the LW H2F bridge region into user space */
     volatile uint32_t *base = (volatile uint32_t *)mmap(
-        NULL, UIO_MAP_SIZE,
+        NULL, MAP_SIZE,
         PROT_READ | PROT_WRITE,
         MAP_SHARED,
-        fd, 0
+        fd, LWH2F_BASE
     );
 
     if (base == MAP_FAILED) {
@@ -215,8 +207,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    printf("FPGA LED controller — UIO device: %s\n", uio_dev);
-    printf("Mapped %d bytes at virtual address %p\n", UIO_MAP_SIZE, (void *)base);
+    printf("FPGA LED controller — /dev/mem @ 0x%08X\n", LWH2F_BASE);
     printf("Current LED value: 0x%02X\n", led_read(base));
 
     /* Install signal handlers for clean shutdown */
@@ -248,7 +239,7 @@ int main(int argc, char *argv[])
         else {
             fprintf(stderr, "Unknown pattern: %s\n", pattern_name);
             led_write(base, 0x00);
-            munmap((void *)base, UIO_MAP_SIZE);
+            munmap((void *)base, MAP_SIZE);
             close(fd);
             return 1;
         }
@@ -258,7 +249,7 @@ int main(int argc, char *argv[])
         printf("\nLEDs turned off. Goodbye.\n");
     }
 
-    munmap((void *)base, UIO_MAP_SIZE);
+    munmap((void *)base, MAP_SIZE);
     close(fd);
     return 0;
 }
