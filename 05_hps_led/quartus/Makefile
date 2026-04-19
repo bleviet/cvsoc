@@ -129,7 +129,8 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
 	  bash -c 'jtagd && sleep 2 && \
-	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"'
+	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
 
 # download-elf: Loads the bare-metal binary into HPS OCRAM via JTAG (OpenOCD in Docker).
 #   Runs OpenOCD inside the raetro/quartus container (--privileged for USB access).
@@ -149,7 +150,8 @@ download-elf: usb-wsl $(APP_DIR)/hps_led.elf
 	      -c "halt" \
 	      -c "load_image /work/05_hps_led/software/app/hps_led.bin 0xFFFF0000 bin" \
 	      -c "resume 0xFFFF0000" \
-	      -c "shutdown"'
+	      -c "shutdown"; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
 	@echo "Done: HPS LED application is running."
 
 # deploy-elf: Copies the bare-metal HPS ELF + binary to the board over SSH.

@@ -98,7 +98,8 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
 	  bash -c 'jtagd && sleep 2 && \
-	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"'
+	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
 
 # ── Download ELF (run without debugger) ──────────────────────────────────────
 download-elf: usb-wsl $(APP_DIR)/nios2_debug.elf
@@ -134,7 +135,8 @@ gdb-server: usb-wsl
 	    nios2-gdb-server \
 	      --tcpport $(GDB_PORT) \
 	      --tcppersist \
-	      --tcpdebug'
+	      --tcpdebug; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
 
 # ── Interactive GDB session ───────────────────────────────────────────────────
 #

@@ -115,7 +115,8 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
 	  bash -c 'jtagd && sleep 2 && \
-	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"'
+	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
 
 # ── Download ELF (load and run, no interactive debugging) ────────────────────
 OPENOCD_CFG  = ../scripts/de10_nano_hps.cfg
@@ -134,7 +135,8 @@ download-elf: usb-wsl $(APP_DIR)/hps_debug.elf
 	      -c "halt" \
 	      -c "load_image /work/09_hps_debug/software/app/hps_debug.bin 0xFFFF0000 bin" \
 	      -c "resume 0xFFFF0000" \
-	      -c "shutdown"'
+	      -c "shutdown"; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
 	@echo "Done: HPS debug application is running."
 
 deploy-elf: $(APP_DIR)/hps_debug.elf
@@ -163,7 +165,8 @@ openocd: usb-wsl
 	    /opt/intelFPGA/quartus/bin/openocd \
 	      -f /tmp/de10_nano_hps.cfg \
 	      -c "init" \
-	      -c "halt"'
+	      -c "halt"; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
 
 # ── Interactive GDB session ───────────────────────────────────────────────────
 #

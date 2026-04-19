@@ -98,7 +98,8 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
 	  bash -c 'jtagd && sleep 2 && \
-	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"'
+	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
 
 # download-elf: Downloads the Nios II ELF to the soft-core via JTAG and starts it.
 #   The uname_shim prevents nios2-download from detecting WSL inside Docker.

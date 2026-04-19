@@ -106,7 +106,8 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
 	  bash -c 'jtagd && sleep 2 && \
-	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"'
+	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
 
 OPENOCD_CFG  = ../scripts/de10_nano_hps.cfg
 
@@ -124,7 +125,8 @@ download-elf: usb-wsl $(APP_DIR)/hps_interrupts.elf
 	      -c "halt" \
 	      -c "load_image /work/07_hps_interrupts/software/app/hps_interrupts.bin 0xFFFF0000 bin" \
 	      -c "resume 0xFFFF0000" \
-	      -c "shutdown"'
+	      -c "shutdown"; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
 	@echo "Done: HPS interrupt application is running."
 
 deploy-elf: $(APP_DIR)/hps_interrupts.elf
