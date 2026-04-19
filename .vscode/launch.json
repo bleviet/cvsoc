@@ -9,13 +9,15 @@
             "cwd": "${workspaceFolder}/09_hps_debug/software/app",
             "MIMode": "gdb",
             "miDebuggerPath": "arm-none-eabi-gdb",
-            "miDebuggerServerAddress": "localhost:3333",
             "logging": { "engineLogging": true, "trace": true },
             "setupCommands": [
+                { "text": "file ${workspaceFolder}/09_hps_debug/software/app/hps_debug.elf", "ignoreFailures": false },
+                { "text": "target remote localhost:3333", "ignoreFailures": false },
                 { "text": "monitor arm mcr 15 0 1 0 0 0", "ignoreFailures": true },
                 { "text": "load", "ignoreFailures": false },
                 { "text": "hbreak main", "ignoreFailures": false }
-            ]
+            ],
+            "launchCompleteCommand": "exec-continue"
         },
         {
             "name": "Host: Debug HPS (Project 09)",
@@ -25,13 +27,15 @@
             "cwd": "${workspaceFolder}/09_hps_debug/software/app",
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb-multiarch",
-            "miDebuggerServerAddress": "localhost:3333",
             "logging": { "engineLogging": true, "trace": true },
             "setupCommands": [
+                { "text": "file ${workspaceFolder}/09_hps_debug/software/app/hps_debug.elf", "ignoreFailures": false },
+                { "text": "target remote localhost:3333", "ignoreFailures": false },
                 { "text": "monitor arm mcr 15 0 1 0 0 0", "ignoreFailures": true },
                 { "text": "load", "ignoreFailures": false },
                 { "text": "hbreak main", "ignoreFailures": false }
-            ]
+            ],
+            "launchCompleteCommand": "exec-continue"
         },
         {
             "name": "DevContainer: Debug Nios II (Project 08)",
@@ -41,12 +45,14 @@
             "cwd": "${workspaceFolder}/08_nios2_debug/software/app",
             "MIMode": "gdb",
             "miDebuggerPath": "nios2-elf-gdb",
-            "miDebuggerServerAddress": "localhost:2345",
             "logging": { "engineLogging": true, "trace": true },
             "setupCommands": [
+                { "text": "file ${workspaceFolder}/08_nios2_debug/software/app/nios2_debug.elf", "ignoreFailures": false },
+                { "text": "target remote localhost:2345", "ignoreFailures": false },
                 { "text": "load", "ignoreFailures": false },
                 { "text": "break set_led", "ignoreFailures": false }
-            ]
+            ],
+            "launchCompleteCommand": "exec-continue"
         },
         {
             "name": "Host: Debug Nios II (Project 08)",
@@ -56,12 +62,14 @@
             "cwd": "${workspaceFolder}/08_nios2_debug/software/app",
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb-multiarch",
-            "miDebuggerServerAddress": "localhost:2345",
             "logging": { "engineLogging": true, "trace": true },
             "setupCommands": [
+                { "text": "file ${workspaceFolder}/08_nios2_debug/software/app/nios2_debug.elf", "ignoreFailures": false },
+                { "text": "target remote localhost:2345", "ignoreFailures": false },
                 { "text": "load", "ignoreFailures": false },
                 { "text": "break set_led", "ignoreFailures": false }
-            ]
+            ],
+            "launchCompleteCommand": "exec-continue"
         }
     ]
 }
