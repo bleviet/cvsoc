@@ -28,6 +28,15 @@ REPO_ROOT  = $(realpath ../..)
 UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
 DOCKER     = docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
 DOCKER_CWD = cd /work/$(PROJECT_NAME)/quartus
+# GUI helper: adds X11/WSLg display forwarding for Quartus GUI targets.
+DOCKER_GUI = docker run --rm \
+  -e DISPLAY=$$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v /mnt/wslg:/mnt/wslg \
+  -e WAYLAND_DISPLAY=$$WAYLAND_DISPLAY \
+  -e XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir \
+  -v $(REPO_ROOT):/work \
+  $(DOCKER_IMAGE) bash -c
 
 # Nios II GDB server port
 GDB_PORT     ?= 2345
@@ -35,7 +44,8 @@ GDB_PORT     ?= 2345
 .PHONY: all qsys project compile bsp app clean check_timing \
         program-sof download-elf terminal \
         gdb-server gdb \
-        usb-windows usb-wsl
+        usb-windows usb-wsl \
+        quartus-gui platform-designer
 
 all:
 	docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
@@ -168,6 +178,20 @@ gdb: $(APP_DIR)/nios2_debug.elf
 	    -ex "set pagination off" \
 	    -x /work/08_nios2_debug/scripts/nios2_debug.gdb \
 	    /work/08_nios2_debug/software/app/nios2_debug.elf
+
+# ── GUI targets ───────────────────────────────────────────────────────────────
+# Opens a GUI tool inside Docker with X11 forwarding to the WSL2 host.
+# Requires WSLg (Windows 11) or a running X server (DISPLAY must be set).
+
+# quartus-gui: Opens Quartus Prime with the project loaded.
+#   Run 'make project' first if de10_nano.qpf does not yet exist.
+quartus-gui:
+	$(DOCKER_GUI) "$(DOCKER_CWD) && quartus $(REVISION_NAME).qpf 2>/dev/null || quartus"
+
+# platform-designer: Opens Platform Designer with the .qsys system file.
+#   Run 'make $(QSYS_FILE)' first if the .qsys file does not yet exist.
+platform-designer:
+	$(DOCKER_GUI) "$(DOCKER_CWD) && qsys-edit $(QSYS_FILE) 2>/dev/null || qsys-edit"
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 FILE_ENDINGS_FOR_REMOVAL = .rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt
