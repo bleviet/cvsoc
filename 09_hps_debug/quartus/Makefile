@@ -3,9 +3,7 @@
 # Adds OpenOCD server and interactive GDB debug targets on top of the 07_hps_interrupts flow.
 #
 # All steps run inside the cvsoc/quartus:23.1 Docker container.
-# Usage (from repo root):
-#   docker run --rm -v $(pwd):/work cvsoc/quartus:23.1 \
-#     bash -c "cd /work/09_hps_debug/quartus && make setup && make all"
+# Call any target directly from the WSL2 host — Docker is invoked automatically.
 
 PROJECT_NAME  = 09_hps_debug
 REVISION_NAME = de10_nano
@@ -28,6 +26,8 @@ DEVICE_INDEX ?= 2
 
 REPO_ROOT    = $(realpath ../..)
 UNAME_SHIM   = $(REPO_ROOT)/common/docker/uname_shim.sh
+DOCKER       = docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
+DOCKER_CWD   = cd /work/$(PROJECT_NAME)/quartus
 
 HPS_IP       ?= 192.168.1.100
 HPS_USER     ?= root
@@ -40,57 +40,74 @@ GDB_PORT     ?= 3333
         openocd gdb \
         usb-windows usb-wsl
 
-all: qsys project compile app
+all:
+	docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
+	  cd /work/$(PROJECT_NAME)/qsys && qsys-script --script=hps_system.tcl && \
+	  cd /work/$(PROJECT_NAME)/quartus && \
+	  qsys-generate ../qsys/hps_system.qsys --synthesis=VERILOG && \
+	  python3 ../scripts/patch_oct.py \
+	    ../qsys/hps_system/synthesis/submodules/altdq_dqs2_acv_connect_to_hard_phy_cyclonev.sv && \
+	  quartus_sh -t de10_nano_project.tcl && \
+	  quartus_map --read_settings_files=on --write_settings_files=off $(PROJECT_NAME) -c $(REVISION_NAME) && \
+	  quartus_sta -t ../qsys/hps_system/synthesis/submodules/hps_sdram_p0_pin_assignments.tcl $(REVISION_NAME) && \
+	  quartus_map --read_settings_files=on --write_settings_files=off $(PROJECT_NAME) -c $(REVISION_NAME) && \
+	  quartus_fit --read_settings_files=on --write_settings_files=off $(PROJECT_NAME) -c $(REVISION_NAME) && \
+	  quartus_asm --read_settings_files=on --write_settings_files=off $(PROJECT_NAME) -c $(REVISION_NAME) && \
+	  quartus_sta $(PROJECT_NAME) -c $(REVISION_NAME) && \
+	  make -C ../software/app CC=arm-linux-gnueabihf-gcc'
 
 # ── Step 0: ARM cross-compiler (pre-installed in cvsoc/quartus:23.1) ─────
 # The ARM cross-compiler and GDB are baked into cvsoc/quartus:23.1 — no
 # manual install needed.  This target is kept for informational purposes.
 setup:
-	@echo "ARM toolchain status:"
-	@arm-linux-gnueabihf-gcc --version | head -1
-	@arm-none-eabi-gdb --version | head -1
-	@echo "All ARM tools are pre-installed in cvsoc/quartus:23.1."
+	$(DOCKER) "echo 'ARM toolchain status:' && \
+	  arm-linux-gnueabihf-gcc --version | head -1 && \
+	  arm-none-eabi-gdb --version | head -1 && \
+	  echo 'All ARM tools are pre-installed in cvsoc/quartus:23.1.'"
 
 # ── Step 1: generate the .qsys file from the TCL script ──────────────────────
 $(QSYS_FILE): $(QSYS_TCL)
-	cd ../qsys && qsys-script --script=hps_system.tcl
+	$(DOCKER) "$(DOCKER_CWD) && cd ../qsys && qsys-script --script=hps_system.tcl"
 
 qsys: $(QSYS_FILE)
-	qsys-generate $(QSYS_FILE) --synthesis=VERILOG
-	@$(MAKE) patch-oct
+	$(DOCKER) "$(DOCKER_CWD) && \
+	  qsys-generate $(QSYS_FILE) --synthesis=VERILOG && \
+	  python3 ../scripts/patch_oct.py \
+	    ../qsys/hps_system/synthesis/submodules/altdq_dqs2_acv_connect_to_hard_phy_cyclonev.sv"
 
 # ── Patch generated DDR3 PHY (same fix as 05_hps_led) ────────────────────────
 patch-oct:
-	@echo "Patching DDR3 PHY: propagating USE_TERMINATION_CONTROL to I/O buffers…"
-	@python3 ../scripts/patch_oct.py \
-	    ../qsys/hps_system/synthesis/submodules/altdq_dqs2_acv_connect_to_hard_phy_cyclonev.sv
+	$(DOCKER) "$(DOCKER_CWD) && \
+	  python3 ../scripts/patch_oct.py \
+	    ../qsys/hps_system/synthesis/submodules/altdq_dqs2_acv_connect_to_hard_phy_cyclonev.sv"
 
 # ── Step 2: create and compile the Quartus project ────────────────────────────
 project: $(QSYS_GEN_DIR)/hps_system.qip
-	quartus_sh -t de10_nano_project.tcl
+	$(DOCKER) "$(DOCKER_CWD) && quartus_sh -t de10_nano_project.tcl"
 
 # Two-pass compilation flow required for Cyclone V HPS DDR3 (same as 07_hps_interrupts).
 compile:
-	quartus_map  --read_settings_files=on --write_settings_files=off \
-	             $(PROJECT_NAME) -c $(REVISION_NAME)
-	quartus_sta  -t $(QSYS_GEN_DIR)/submodules/hps_sdram_p0_pin_assignments.tcl \
-	             $(REVISION_NAME)
-	quartus_map  --read_settings_files=on --write_settings_files=off \
-	             $(PROJECT_NAME) -c $(REVISION_NAME)
-	quartus_fit  --read_settings_files=on --write_settings_files=off \
-	             $(PROJECT_NAME) -c $(REVISION_NAME)
-	quartus_asm  --read_settings_files=on --write_settings_files=off \
-	             $(PROJECT_NAME) -c $(REVISION_NAME)
-	quartus_sta  $(PROJECT_NAME) -c $(REVISION_NAME)
+	$(DOCKER) "$(DOCKER_CWD) && \
+	  quartus_map --read_settings_files=on --write_settings_files=off \
+	             $(PROJECT_NAME) -c $(REVISION_NAME) && \
+	  quartus_sta -t $(QSYS_GEN_DIR)/submodules/hps_sdram_p0_pin_assignments.tcl \
+	             $(REVISION_NAME) && \
+	  quartus_map --read_settings_files=on --write_settings_files=off \
+	             $(PROJECT_NAME) -c $(REVISION_NAME) && \
+	  quartus_fit --read_settings_files=on --write_settings_files=off \
+	             $(PROJECT_NAME) -c $(REVISION_NAME) && \
+	  quartus_asm --read_settings_files=on --write_settings_files=off \
+	             $(PROJECT_NAME) -c $(REVISION_NAME) && \
+	  quartus_sta $(PROJECT_NAME) -c $(REVISION_NAME)"
 
 # ── Step 3: cross-compile the ARM bare-metal application ─────────────────────
 app:
-	$(MAKE) -C $(APP_DIR) CC=$(ARM_CC)
+	$(DOCKER) "$(DOCKER_CWD) && make -C $(APP_DIR) CC=$(ARM_CC)"
 
 # ── Timing check ──────────────────────────────────────────────────────────────
 check_timing:
-	python ../../00_led_blinking/scripts/check_timing_slacks.py \
-	       $(REVISION_NAME).sta.rpt 2>/dev/null || true
+	$(DOCKER) "$(DOCKER_CWD) && python /work/00_led_blinking/scripts/check_timing_slacks.py \
+	       $(REVISION_NAME).sta.rpt 2>/dev/null || true"
 
 # ── USB-Blaster attach/detach ─────────────────────────────────────────────────
 # usb-wsl: Connects the USB-Blaster to WSL2 so Docker can reach it.
@@ -190,7 +207,11 @@ gdb: $(APP_DIR)/hps_debug.elf
 FILE_ENDINGS_FOR_REMOVAL = .rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt
 
 clean:
-	rm -rf db incremental_db output_files hps_isw_handoff
-	rm -rf $(QSYS_FILE) ../qsys/hps_system ../qsys/hps_system.sopcinfo
-	$(MAKE) -C $(APP_DIR) clean 2>/dev/null || true
-	rm -f $(foreach ENDING,$(FILE_ENDINGS_FOR_REMOVAL),$(wildcard *$(ENDING)))
+	$(DOCKER) "$(DOCKER_CWD) && \
+	  rm -rf db incremental_db output_files hps_isw_handoff && \
+	  rm -rf $(QSYS_FILE) ../qsys/hps_system ../qsys/hps_system.sopcinfo && \
+	  make -C $(APP_DIR) clean 2>/dev/null || true && \
+	  find . -maxdepth 1 \( -name '*.rpt' -o -name '*.summary' -o -name '*.qsf' \
+	    -o -name '*.qpf' -o -name '*.qws' -o -name '*.done' -o -name '*.smsg' \
+	    -o -name '*.jdi' -o -name '*.pin' -o -name '*.sld' -o -name '*.sof' \
+	    -o -name 'dump.txt' \) -delete"

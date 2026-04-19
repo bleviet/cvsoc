@@ -1,10 +1,8 @@
 # Makefile for the 04_nios2_led Quartus project.
 # Orchestrates: Platform Designer generation → Quartus compile → BSP generation → app build.
 #
-# Run inside the raetro/quartus Docker container (all tools are in PATH).
-# Usage:
-#   docker run --rm -v <repo_root>:/work cvsoc/quartus:23.1 \
-#     bash -c "cd /work/04_nios2_led/quartus && make all"
+# All steps run inside the cvsoc/quartus:23.1 Docker container.
+# Call any target directly from the WSL2 host — Docker is invoked automatically.
 
 PROJECT_NAME  = 04_nios2_led
 REVISION_NAME = de10_nano
@@ -30,25 +28,39 @@ DEVICE_INDEX ?= 2
 
 REPO_ROOT  = $(realpath ../..)
 UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
+DOCKER     = docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
+DOCKER_CWD = cd /work/$(PROJECT_NAME)/quartus
 
 .PHONY: all qsys project compile bsp app clean \
         program-sof download-elf terminal usb-windows usb-wsl
 
-all: qsys project compile bsp app
+all:
+	docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
+	  cd /work/$(PROJECT_NAME)/qsys && qsys-script --script=nios2_system.tcl && \
+	  cd /work/$(PROJECT_NAME)/quartus && \
+	  qsys-generate ../qsys/nios2_system.qsys --synthesis=VHDL --output-directory=../qsys/nios2_system_gen && \
+	  quartus_sh -t de10_nano_project.tcl && \
+	  quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME) && \
+	  mkdir -p ../software/bsp && \
+	  nios2-bsp-create-settings --sopc ../qsys/nios2_system.sopcinfo --type hal \
+	    --settings ../software/bsp/settings.bsp --bsp-dir ../software/bsp \
+	    --script /opt/intelFPGA/nios2eds/sdk2/bin/bsp-set-defaults.tcl --cpu-name nios2 && \
+	  make -C ../software/bsp WINDOWS_EXE= && \
+	  make -C ../software/app'
 
 # ── Step 1: generate the .qsys file from the TCL script ──────────────────────
 $(QSYS_FILE): $(QSYS_TCL)
-	cd ../qsys && qsys-script --script=nios2_system.tcl
+	$(DOCKER) "$(DOCKER_CWD) && cd ../qsys && qsys-script --script=nios2_system.tcl"
 
 qsys: $(QSYS_FILE)
-	qsys-generate $(QSYS_FILE) --synthesis=VHDL --output-directory=$(QSYS_GEN_DIR)
+	$(DOCKER) "$(DOCKER_CWD) && qsys-generate $(QSYS_FILE) --synthesis=VHDL --output-directory=$(QSYS_GEN_DIR)"
 
 # ── Step 2: create and compile the Quartus project ───────────────────────────
 project: $(QSYS_GEN_DIR)/synthesis/nios2_system.qip
-	quartus_sh -t de10_nano_project.tcl
+	$(DOCKER) "$(DOCKER_CWD) && quartus_sh -t de10_nano_project.tcl"
 
 compile:
-	quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME)
+	$(DOCKER) "$(DOCKER_CWD) && quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME)"
 
 # ── Step 3: generate the Nios II HAL BSP ─────────────────────────────────────
 # Use nios2-bsp-create-settings directly instead of the nios2-bsp wrapper,
@@ -56,23 +68,24 @@ compile:
 BSP_DEFAULT_TCL = /opt/intelFPGA/nios2eds/sdk2/bin/bsp-set-defaults.tcl
 
 bsp: $(SOPCINFO)
-	mkdir -p $(BSP_DIR)
-	nios2-bsp-create-settings \
-	  --sopc $(SOPCINFO) \
-	  --type hal \
-	  --settings $(BSP_DIR)/settings.bsp \
-	  --bsp-dir $(BSP_DIR) \
-	  --script $(BSP_DEFAULT_TCL) \
-	  --cpu-name nios2
-	$(MAKE) -C $(BSP_DIR) WINDOWS_EXE=
+	$(DOCKER) "$(DOCKER_CWD) && \
+	  mkdir -p $(BSP_DIR) && \
+	  nios2-bsp-create-settings \
+	    --sopc $(SOPCINFO) \
+	    --type hal \
+	    --settings $(BSP_DIR)/settings.bsp \
+	    --bsp-dir $(BSP_DIR) \
+	    --script $(BSP_DEFAULT_TCL) \
+	    --cpu-name nios2 && \
+	  make -C $(BSP_DIR) WINDOWS_EXE="
 
 # ── Step 4: build the C application ──────────────────────────────────────────
 app: bsp
-	$(MAKE) -C $(APP_DIR)
+	$(DOCKER) "$(DOCKER_CWD) && make -C $(APP_DIR)"
 
 # ── Timing check (reuse the script from existing projects) ───────────────────
 check_timing:
-	python ../../00_led_blinking/scripts/check_timing_slacks.py $(REVISION_NAME).sta.rpt 2>/dev/null || true
+	$(DOCKER) "$(DOCKER_CWD) && python /work/00_led_blinking/scripts/check_timing_slacks.py $(REVISION_NAME).sta.rpt 2>/dev/null || true"
 
 # ── Programming & debug targets ──────────────────────────────────────────────
 # usb-wsl: Connects the USB-Blaster to WSL2 so Docker can reach it.
@@ -121,8 +134,12 @@ terminal: usb-wsl
 FILE_ENDINGS_FOR_REMOVAL = .rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt
 
 clean:
-	rm -rf db incremental_db output_files
-	rm -rf $(QSYS_GEN_DIR) $(QSYS_FILE)
-	rm -rf $(BSP_DIR)
-	$(MAKE) -C $(APP_DIR) clean 2>/dev/null || true
-	rm -f $(foreach ENDING,$(FILE_ENDINGS_FOR_REMOVAL),$(wildcard *$(ENDING)))
+	$(DOCKER) "$(DOCKER_CWD) && \
+	  rm -rf db incremental_db output_files && \
+	  rm -rf $(QSYS_GEN_DIR) $(QSYS_FILE) && \
+	  rm -rf $(BSP_DIR) && \
+	  make -C $(APP_DIR) clean 2>/dev/null || true && \
+	  find . -maxdepth 1 \( -name '*.rpt' -o -name '*.summary' -o -name '*.qsf' \
+	    -o -name '*.qpf' -o -name '*.qws' -o -name '*.done' -o -name '*.smsg' \
+	    -o -name '*.jdi' -o -name '*.pin' -o -name '*.sld' -o -name '*.sof' \
+	    -o -name 'dump.txt' \) -delete"
