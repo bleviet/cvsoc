@@ -1,13 +1,15 @@
 # Makefile for the 05_hps_led Quartus project.
 # Orchestrates: Platform Designer generation → Quartus compile → ARM app build.
 #
-# All steps run inside the raetro/quartus:23.1 Docker container.
-# Usage (from repo root):
-#   docker run --rm -v $(pwd):/work raetro/quartus:23.1 \
-#     bash -c "cd /work/05_hps_led/quartus && make setup && make all"
+# All steps run inside the cvsoc/quartus:23.1 Docker container, which extends
+# raetro/quartus:23.1 with the ARM cross-compiler and debugger pre-installed.
 #
-# The 'setup' target installs the ARM cross-compiler from the Debian snapshot
-# archive.  It is only needed once per fresh container session.
+# Build the image once (from repo root):
+#   docker build -t cvsoc/quartus:23.1 common/docker/
+#
+# Usage (from repo root):
+#   docker run --rm -v $(pwd):/work cvsoc/quartus:23.1 \
+#     bash -c "cd /work/05_hps_led/quartus && make all"
 
 PROJECT_NAME  = 05_hps_led
 REVISION_NAME = de10_nano
@@ -23,7 +25,7 @@ ARM_CC        ?= arm-linux-gnueabihf-gcc
 # Windows Quartus Programmer (callable from WSL2 via interop — no extra setup).
 # Override with: make QUARTUS_PGM=<path> program-sof
 QUARTUS_PGM  ?= /mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe
-DOCKER_IMAGE ?= raetro/quartus:23.1
+DOCKER_IMAGE ?= cvsoc/quartus:23.1
 
 # usbipd-win bus ID for the USB-Blaster II.
 # Find yours with: usbipd.exe list  (look for "USB-Blaster")
@@ -42,17 +44,14 @@ HPS_USER     ?= root
 
 all: qsys project compile app
 
-# ── Step 0: install ARM cross-compiler (Debian 9 snapshot) ───────────────
-# The raetro/quartus:23.1 container is Debian 9 (stretch); the package is
-# available from the snapshot archive.
+# ── Step 0: ARM cross-compiler (pre-installed in cvsoc/quartus:23.1) ─────
+# The ARM cross-compiler is baked into cvsoc/quartus:23.1 — no manual install
+# needed.  This target is kept for informational purposes.
 setup:
-	@echo "Installing ARM cross-compiler (arm-linux-gnueabihf-gcc)…"
-	echo "deb http://snapshot.debian.org/archive/debian/20220622T000000Z stretch main" \
-	     > /etc/apt/sources.list
-	apt-get update -o Acquire::Check-Valid-Until=false -qq
-	apt-get install -y -o Acquire::Check-Valid-Until=false \
-	     gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf
-	@echo "ARM cross-compiler installed: $$(arm-linux-gnueabihf-gcc --version | head -1)"
+	@echo "ARM cross-compiler status:"
+	@arm-linux-gnueabihf-gcc --version | head -1
+	@arm-none-eabi-gdb --version | head -1
+	@echo "All ARM tools are pre-installed in cvsoc/quartus:23.1."
 
 # ── Step 1: generate the .qsys file from the TCL script ──────────────────
 $(QSYS_FILE): $(QSYS_TCL)

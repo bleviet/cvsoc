@@ -19,7 +19,7 @@ APP_DIR       = ../software/app
 ARM_CC        ?= arm-linux-gnueabihf-gcc
 
 QUARTUS_PGM  ?= /mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe
-DOCKER_IMAGE ?= raetro/quartus:23.1
+DOCKER_IMAGE ?= cvsoc/quartus:23.1
 
 USBIPD       ?= usbipd.exe
 USBIPD_BUSID ?= 2-4
@@ -37,16 +37,14 @@ GDB_PORT     ?= 3333
 
 all: qsys project compile app
 
-# ── Step 0: install ARM cross-compiler (Debian 9 snapshot) ───────────────────
+# ── Step 0: ARM cross-compiler (pre-installed in cvsoc/quartus:23.1) ─────
+# The ARM cross-compiler and GDB are baked into cvsoc/quartus:23.1 — no
+# manual install needed.  This target is kept for informational purposes.
 setup:
-	@echo "Installing ARM cross-compiler and GDB (arm-linux-gnueabihf-gcc, arm-none-eabi-gdb)…"
-	echo "deb http://snapshot.debian.org/archive/debian/20220622T000000Z stretch main" \
-	     > /etc/apt/sources.list
-	apt-get update -o Acquire::Check-Valid-Until=false -qq
-	apt-get install -y -o Acquire::Check-Valid-Until=false \
-	     gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf gdb-arm-none-eabi
-	@echo "ARM cross-compiler: $$(arm-linux-gnueabihf-gcc --version | head -1)"
-	@echo "ARM GDB:            $$(arm-none-eabi-gdb --version | head -1)"
+	@echo "ARM toolchain status:"
+	@arm-linux-gnueabihf-gcc --version | head -1
+	@arm-none-eabi-gdb --version | head -1
+	@echo "All ARM tools are pre-installed in cvsoc/quartus:23.1."
 
 # ── Step 1: generate the .qsys file from the TCL script ──────────────────────
 $(QSYS_FILE): $(QSYS_TCL)
@@ -170,11 +168,10 @@ gdb: $(APP_DIR)/hps_debug.elf
 	  --network host \
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
-	  bash -c 'apt-get install -y -o Acquire::Check-Valid-Until=false gdb-arm-none-eabi -qq && \
-	    arm-none-eabi-gdb \
-	      -ex "set pagination off" \
-	      -x /work/09_hps_debug/scripts/hps_debug.gdb \
-	      /work/09_hps_debug/software/app/hps_debug.elf'
+	  arm-none-eabi-gdb \
+	    -ex "set pagination off" \
+	    -x /work/09_hps_debug/scripts/hps_debug.gdb \
+	    /work/09_hps_debug/software/app/hps_debug.elf
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 FILE_ENDINGS_FOR_REMOVAL = .rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt

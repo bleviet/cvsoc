@@ -18,7 +18,7 @@ BSP_DIR       = ../software/bsp
 APP_DIR       = ../software/app
 
 QUARTUS_PGM  ?= /mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe
-DOCKER_IMAGE ?= raetro/quartus:23.1
+DOCKER_IMAGE ?= cvsoc/quartus:23.1
 
 USBIPD       ?= usbipd.exe
 USBIPD_BUSID ?= 2-4

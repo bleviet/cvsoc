@@ -22,7 +22,7 @@ REPO_ROOT     := $(realpath ..)
 # ── FPGA bitstream (reused from 05_hps_led) ──────────────────────────────────
 SOF_FILE      := $(REPO_ROOT)/05_hps_led/quartus/de10_nano.sof
 RBF_FILE      := $(PROJECT_DIR)/de10_nano.rbf
-DOCKER_IMAGE  ?= raetro/quartus:23.1
+DOCKER_IMAGE  ?= cvsoc/quartus:23.1
 
 # ── Buildroot ─────────────────────────────────────────────────────────────────
 BUILDROOT_VERSION := 2024.11.1

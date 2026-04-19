@@ -22,7 +22,7 @@ APP_DIR       = ../software/app
 QUARTUS_PGM  ?= /mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe
 
 # Docker image that contains nios2-download / nios2-terminal.
-DOCKER_IMAGE ?= raetro/quartus:23.1
+DOCKER_IMAGE ?= cvsoc/quartus:23.1
 
 # usbipd-win bus ID for the USB-Blaster II.
 # Find yours with: usbipd.exe list  (look for "USB-Blaster")

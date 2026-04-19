@@ -21,7 +21,7 @@ APP_DIR       = ../software/app
 ARM_CC        ?= arm-linux-gnueabihf-gcc
 
 QUARTUS_PGM  ?= /mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe
-DOCKER_IMAGE ?= raetro/quartus:23.1
+DOCKER_IMAGE ?= cvsoc/quartus:23.1
 
 USBIPD       ?= usbipd.exe
 USBIPD_BUSID ?= 2-4
@@ -34,15 +34,14 @@ HPS_USER     ?= root
 
 all: qsys project compile app
 
-# ── Step 0: install ARM cross-compiler (Debian 9 snapshot) ───────────────
+# ── Step 0: ARM cross-compiler (pre-installed in cvsoc/quartus:23.1) ─────
+# The ARM cross-compiler is baked into cvsoc/quartus:23.1 — no manual install
+# needed.  This target is kept for informational purposes.
 setup:
-	@echo "Installing ARM cross-compiler (arm-linux-gnueabihf-gcc)…"
-	echo "deb http://snapshot.debian.org/archive/debian/20220622T000000Z stretch main" \
-	     > /etc/apt/sources.list
-	apt-get update -o Acquire::Check-Valid-Until=false -qq
-	apt-get install -y -o Acquire::Check-Valid-Until=false \
-	     gcc-arm-linux-gnueabihf binutils-arm-linux-gnueabihf
-	@echo "ARM cross-compiler installed: $$(arm-linux-gnueabihf-gcc --version | head -1)"
+	@echo "ARM cross-compiler status:"
+	@arm-linux-gnueabihf-gcc --version | head -1
+	@arm-none-eabi-gdb --version | head -1
+	@echo "All ARM tools are pre-installed in cvsoc/quartus:23.1."
 
 # ── Step 1: generate the .qsys file from the TCL script ──────────────────
 $(QSYS_FILE): $(QSYS_TCL)
