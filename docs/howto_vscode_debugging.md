@@ -55,53 +55,37 @@ VS Code uses a `launch.json` file to define debug configurations.
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug HPS (Project 09)",
+            "name": "Host: Debug HPS (Project 09)",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/09_hps_debug/software/app/hps_debug.elf",
             "cwd": "${workspaceFolder}/09_hps_debug/software/app",
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb-multiarch",
-            "miDebuggerServerAddress": "localhost:3333",
             "setupCommands": [
-                {
-                    "description": "Disable MMU and Caches",
-                    "text": "monitor arm mcr 15 0 1 0 0 0",
-                    "ignoreFailures": true
-                },
-                {
-                    "description": "Load ELF into OCRAM",
-                    "text": "load",
-                    "ignoreFailures": false
-                },
-                {
-                    "description": "Halt at main",
-                    "text": "hbreak main",
-                    "ignoreFailures": false
-                }
-            ]
+                { "text": "file ${workspaceFolder}/09_hps_debug/software/app/hps_debug.elf", "ignoreFailures": false },
+                { "text": "target remote localhost:3333", "ignoreFailures": false },
+                { "text": "monitor arm mcr 15 0 1 0 0 0", "ignoreFailures": true },
+                { "text": "load", "ignoreFailures": false },
+                { "text": "hbreak main", "ignoreFailures": false }
+            ],
+            "launchCompleteCommand": "exec-continue"
         },
         {
-            "name": "Debug Nios II (Project 08)",
+            "name": "Host: Debug Nios II (Project 08)",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/08_nios2_debug/software/app/nios2_debug.elf",
             "cwd": "${workspaceFolder}/08_nios2_debug/software/app",
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb-multiarch",
-            "miDebuggerServerAddress": "localhost:2345",
             "setupCommands": [
-                {
-                    "description": "Load ELF into On-Chip RAM",
-                    "text": "load",
-                    "ignoreFailures": false
-                },
-                {
-                    "description": "Set breakpoint at set_led",
-                    "text": "break set_led",
-                    "ignoreFailures": false
-                }
-            ]
+                { "text": "file ${workspaceFolder}/08_nios2_debug/software/app/nios2_debug.elf", "ignoreFailures": false },
+                { "text": "target remote localhost:2345", "ignoreFailures": false },
+                { "text": "load", "ignoreFailures": false },
+                { "text": "break set_led", "ignoreFailures": false }
+            ],
+            "launchCompleteCommand": "exec-continue"
         }
     ]
 }
