@@ -51,13 +51,36 @@ if [ -f "$BASE_DTB" ] && [ -x "$FDTPUT" ]; then
     # 5. Reference the LW H2F bridge from the region
     "$FDTPUT" -t x "$BASE_DTB" /soc/base_fpga_region fpga-bridges 0x40
 
-    # 6. Add the LED PIO UIO child node inside base_fpga_region
-    "$FDTPUT" -t s "$BASE_DTB" /soc/base_fpga_region/led-controller@ff200000 \
-        compatible generic-uio
-    "$FDTPUT" -t x "$BASE_DTB" /soc/base_fpga_region/led-controller@ff200000 \
-        reg 0xff200000 0x10
-    "$FDTPUT" -t s "$BASE_DTB" /soc/base_fpga_region/led-controller@ff200000 \
-        status okay
+    # 6. Add the LED PIO UIO child node inside base_fpga_region.
+    #    fdtput (DTC 1.7.x) cannot create new nodes, so we do a DTS round-trip:
+    #    decompile → inject node text → recompile.
+    DTC="${HOST_DIR}/bin/dtc"
+    TMP_DTS="${BASE_DTB%.dtb}_patched.dts"
+    "$DTC" -I dtb -O dts -o "$TMP_DTS" "$BASE_DTB" 2>/dev/null
+    python3 - "$TMP_DTS" <<'PYEOF'
+import sys, re
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+
+uio_node = (
+    "\t\t\tled-controller@ff200000 {\n"
+    "\t\t\t\tcompatible = \"generic-uio\";\n"
+    "\t\t\t\treg = <0xff200000 0x10>;\n"
+    "\t\t\t\tstatus = \"okay\";\n"
+    "\t\t\t};\n"
+)
+
+old = "\t\t\t#size-cells = <0x01>;\n\t\t};"
+new = "\t\t\t#size-cells = <0x01>;\n\n" + uio_node + "\t\t};"
+content = content.replace(old, new, 1)
+
+with open(path, 'w') as f:
+    f.write(content)
+PYEOF
+    "$DTC" -I dts -O dtb -o "$BASE_DTB" "$TMP_DTS" 2>/dev/null
+    rm -f "$TMP_DTS"
 
     echo "post-image.sh: DTB patched:"
     echo "  bridge@ff400000 phandle=$("$FDTGET" -t x "$BASE_DTB" /soc/fpga_bridge@ff400000 phandle) status=$("$FDTGET" "$BASE_DTB" /soc/fpga_bridge@ff400000 status)"
