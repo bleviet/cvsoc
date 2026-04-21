@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DE10-Nano LED Dashboard</title>
+  <style>
+    /* ── Reset & base ──────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: ui-monospace, "Cascadia Code", "Fira Code", "Consolas", monospace;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+      gap: 20px;
+    }
+
+    /* ── Card ──────────────────────────────────────────────────────────── */
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 20px 24px;
+      width: 100%;
+      max-width: 680px;
+    }
+
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #8b949e;
+      margin-bottom: 16px;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────────── */
+    header {
+      width: 100%;
+      max-width: 680px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #e6edf3;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      transition: all .3s;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #30363d;
+      transition: background .3s, box-shadow .3s;
+    }
+
+    .status-badge.connected .status-dot {
+      background: #3fb950;
+      box-shadow: 0 0 6px #3fb950;
+    }
+
+    .status-badge.connected { color: #3fb950; border-color: #3fb95044; }
+    .status-badge.disconnected { color: #6e7681; }
+
+    /* ── LED row ──────────────────────────────────────────────────────── */
+    .led-row {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .led-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .led {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: background .15s, box-shadow .15s, transform .1s;
+      border: 2px solid transparent;
+      position: relative;
+    }
+
+    .led:hover { transform: scale(1.08); }
+    .led:active { transform: scale(0.95); }
+
+    .led.off {
+      background: #1c2128;
+      border-color: #30363d;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,.6);
+    }
+
+    .led.on {
+      background: radial-gradient(circle at 38% 35%, #ffe066, #ffa500);
+      border-color: #ffd700;
+      box-shadow:
+        0 0  8px 2px #ffa500,
+        0 0 18px 6px rgba(255,165,0,.45),
+        0 0 30px 10px rgba(255,165,0,.18);
+    }
+
+    .led-num {
+      font-size: 11px;
+      color: #6e7681;
+      font-weight: 600;
+    }
+
+    /* ── Pattern display ──────────────────────────────────────────────── */
+    .pattern-display {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      font-size: 13px;
+    }
+
+    .pattern-hex {
+      font-size: 22px;
+      font-weight: 700;
+      color: #ffa500;
+      letter-spacing: .05em;
+    }
+
+    .pattern-bin {
+      color: #8b949e;
+      font-size: 13px;
+      letter-spacing: .12em;
+    }
+
+    /* ── Buttons ─────────────────────────────────────────────────────── */
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    button {
+      background: #21262d;
+      color: #e6edf3;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font: inherit;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+      white-space: nowrap;
+    }
+
+    button:hover { background: #30363d; border-color: #8b949e; }
+    button:active { background: #161b22; }
+
+    button.active {
+      background: #1f3d1f;
+      border-color: #3fb950;
+      color: #3fb950;
+    }
+
+    button.danger {
+      border-color: #da3633;
+      color: #f85149;
+    }
+
+    button.danger:hover { background: #2d1212; }
+
+    /* ── Speed slider ─────────────────────────────────────────────────── */
+    .speed-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: #8b949e;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      accent-color: #ffa500;
+      cursor: pointer;
+    }
+
+    .speed-val { color: #e6edf3; min-width: 44px; text-align: right; }
+
+    /* ── Packet log ───────────────────────────────────────────────────── */
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .log-container {
+      background: #0d1117;
+      border: 1px solid #21262d;
+      border-radius: 6px;
+      height: 200px;
+      overflow-y: auto;
+      padding: 8px 10px;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .log-entry {
+      display: grid;
+      grid-template-columns: 90px 18px 130px 60px 1fr;
+      gap: 0 8px;
+      color: #8b949e;
+    }
+
+    .log-entry .ts  { color: #484f58; }
+    .log-entry .dir-out { color: #58a6ff; }
+    .log-entry .dir-in  { color: #3fb950; }
+    .log-entry .cmd { color: #e6edf3; }
+    .log-entry .val { color: #ffa500; }
+    .log-entry .stat-ok  { color: #3fb950; }
+    .log-entry .stat-err { color: #f85149; }
+
+    .log-error {
+      color: #f85149;
+      font-size: 12px;
+      padding: 1px 0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <header>
+    <h1>💡 DE10-Nano LED Dashboard</h1>
+    <div class="status-badge disconnected" id="status-badge">
+      <div class="status-dot"></div>
+      <span id="status-text">Connecting…</span>
+    </div>
+  </header>
+
+  <!-- ── LED visualiser ─────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-title">FPGA LED State — click a circle to toggle</div>
+    <div class="led-row" id="led-row"></div>
+    <div class="pattern-display">
+      <span class="pattern-hex" id="hex-val">0x00</span>
+      <span class="pattern-bin" id="bin-val">00000000</span>
+    </div>
+  </div>
+
+  <!-- ── Controls ───────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-title">Presets &amp; Animations</div>
+    <div class="btn-group" id="preset-btns">
+      <button onclick="setPattern(0xFF)">All On</button>
+      <button onclick="setPattern(0x00)">All Off</button>
+      <button onclick="setPattern(0xAA)">0xAA ▪░▪░▪░▪░</button>
+      <button onclick="setPattern(0x55)">0x55 ░▪░▪░▪░▪</button>
+      <button data-anim="chase"  onclick="toggleAnim('chase')">Chase →</button>
+      <button data-anim="bounce" onclick="toggleAnim('bounce')">Bounce ↔</button>
+      <button data-anim="blink"  onclick="toggleAnim('blink')">Blink</button>
+      <button data-anim="fill"   onclick="toggleAnim('fill')">Fill ↑</button>
+    </div>
+    <div class="speed-row">
+      <span>Speed</span>
+      <input type="range" id="speed-slider" min="50" max="800" value="200">
+      <span class="speed-val" id="speed-label">200 ms</span>
+    </div>
+  </div>
+
+  <!-- ── Packet log ─────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="log-header">
+      <span class="card-title" style="margin:0">Packet Log</span>
+      <button onclick="clearLog()" style="padding:3px 10px;font-size:11px">Clear</button>
+    </div>
+    <div class="log-container" id="log"></div>
+  </div>
+
+  <script>
+    // ── WebSocket connection ──────────────────────────────────────────────
+    // gateway.py substitutes {{WS_PORT}} when serving this file.
+    const WS_URL = "ws://localhost:{{WS_PORT}}";
+
+    let ws;
+    let currentPattern = 0;
+    let animTimer = null;
+    let activeAnim = null;
+
+    const ANIMATIONS = {
+      chase:  [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80],
+      bounce: [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
+               0x40, 0x20, 0x10, 0x08, 0x04, 0x02],
+      blink:  [0xFF, 0x00],
+      fill:   [0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F, 0xFF,
+               0x7F, 0x3F, 0x1F, 0x0F, 0x07, 0x03, 0x01, 0x00],
+    };
+
+    // ── Build LED circles ─────────────────────────────────────────────────
+    const ledRow = document.getElementById("led-row");
+    for (let i = 7; i >= 0; i--) {
+      const wrap = document.createElement("div");
+      wrap.className = "led-wrap";
+      wrap.innerHTML =
+        `<div class="led off" id="led${i}" title="LED ${i}" onclick="toggleLed(${i})"></div>` +
+        `<div class="led-num">${i}</div>`;
+      ledRow.appendChild(wrap);
+    }
+
+    // ── WebSocket lifecycle ───────────────────────────────────────────────
+    function connect() {
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        const badge = document.getElementById("status-badge");
+        badge.className = "status-badge connected";
+        document.getElementById("status-text").textContent = "Connected";
+      };
+
+      ws.onclose = () => {
+        const badge = document.getElementById("status-badge");
+        badge.className = "status-badge disconnected";
+        document.getElementById("status-text").textContent = "Disconnected";
+        // Reconnect after 3 s
+        setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => ws.close();
+
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "state") {
+          renderLeds(msg.pattern);
+        } else if (msg.type === "log") {
+          appendLog(msg.entry);
+        } else if (msg.type === "error") {
+          appendError(msg);
+        }
+      };
+    }
+
+    connect();
+
+    // ── LED rendering ─────────────────────────────────────────────────────
+    function renderLeds(pattern) {
+      currentPattern = pattern;
+      document.getElementById("hex-val").textContent =
+        "0x" + pattern.toString(16).toUpperCase().padStart(2, "0");
+      document.getElementById("bin-val").textContent =
+        pattern.toString(2).padStart(8, "0");
+      for (let i = 0; i < 8; i++) {
+        const el = document.getElementById("led" + i);
+        el.className = "led " + ((pattern >> i) & 1 ? "on" : "off");
+      }
+    }
+
+    // ── Send helpers ──────────────────────────────────────────────────────
+    function sendCmd(command, pattern) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ command, pattern }));
+      }
+    }
+
+    function setPattern(p) {
+      stopAnim();
+      sendCmd("SET_PATTERN", p);
+    }
+
+    function toggleLed(bit) {
+      stopAnim();
+      sendCmd("SET_PATTERN", currentPattern ^ (1 << bit));
+    }
+
+    // ── Animation control ─────────────────────────────────────────────────
+    let animIdx = 0;
+
+    function toggleAnim(name) {
+      if (activeAnim === name) { stopAnim(); return; }
+      stopAnim();
+      activeAnim = name;
+      // Mark the active button
+      document.querySelectorAll("[data-anim]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.anim === name);
+      });
+      const frames = ANIMATIONS[name];
+      animIdx = 0;
+      function step() {
+        sendCmd("SET_PATTERN", frames[animIdx % frames.length]);
+        animIdx++;
+        animTimer = setTimeout(step, getSpeed());
+      }
+      step();
+    }
+
+    function stopAnim() {
+      if (animTimer) { clearTimeout(animTimer); animTimer = null; }
+      activeAnim = null;
+      document.querySelectorAll("[data-anim]").forEach((b) => b.classList.remove("active"));
+    }
+
+    function getSpeed() {
+      return parseInt(document.getElementById("speed-slider").value, 10);
+    }
+
+    document.getElementById("speed-slider").addEventListener("input", (e) => {
+      document.getElementById("speed-label").textContent = e.target.value + " ms";
+    });
+
+    // ── Packet log ────────────────────────────────────────────────────────
+    const MAX_LOG = 50;
+
+    function appendLog(entry) {
+      const container = document.getElementById("log");
+      const row = document.createElement("div");
+      row.className = "log-entry";
+
+      const dirClass  = entry.dir === "→" ? "dir-out" : "dir-in";
+      const statClass = entry.status && entry.status !== "OK" ? "stat-err" : "stat-ok";
+      const statStr   = entry.status
+        ? `<span class="${statClass}">${entry.status}</span>`
+        : "";
+      const patStr    = entry.pattern
+        ? `<span class="val">${entry.pattern}</span>`
+        : "<span></span>";
+
+      row.innerHTML =
+        `<span class="ts">${entry.ts}</span>` +
+        `<span class="${dirClass}">${entry.dir}</span>` +
+        `<span class="cmd">${entry.cmd || entry.command}</span>` +
+        patStr + statStr;
+
+      container.prepend(row);
+      while (container.children.length > MAX_LOG) container.lastChild.remove();
+    }
+
+    function appendError(msg) {
+      const container = document.getElementById("log");
+      const div = document.createElement("div");
+      div.className = "log-error";
+      div.textContent = `${msg.timestamp || ""}  ✗  ${msg.message}`;
+      container.prepend(div);
+    }
+
+    function clearLog() {
+      document.getElementById("log").innerHTML = "";
+    }
+  </script>
+</body>
+</html>

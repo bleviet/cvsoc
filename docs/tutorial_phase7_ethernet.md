@@ -1290,12 +1290,314 @@ make -C common/docker
 | Field tags and schema evolution | `TestSchemaEvolution` — unknown field 3 (`brightness`) ignored by current decoder |
 | Vendoring a C runtime for reproducible cross-builds | `software/led_server/nanopb/` — bundled from nanopb-0.4.9.1 |
 | Running two protocol versions in parallel | Ports 5005 (raw) and 5006 (protobuf) running simultaneously on the board |
+| IoT gateway pattern: protocol translation at a border node | `dashboard/gateway.py` — WebSocket JSON ↔ protobuf UDP |
+| WebSocket server-push vs. HTTP request-response | `gateway.py` broadcasts state to all clients on every pattern change |
+| asyncio event-driven architecture | Single event loop handles WebSocket clients + UDP socket + board polling |
+| Protobuf-JSON transcoding | `pb_decode()` → Python dict → `json.dumps()` in `_handle_message()` |
+| Dependency-free browser SPA | `dashboard.html` — vanilla JS, no npm, no framework |
+| CSS animations for real-time data visualisation | `dashboard.html` — LED `box-shadow` glow transitions |
+
+---
+
+## Phase 7.6 — Web Dashboard
+
+Phase 7.6 extends the §7.5 protobuf setup with a browser-based dashboard. No changes are required to the board firmware — `led_server_pb` (port 5006) continues running unchanged.
+
+### Architecture
+
+```
+Browser ←── WebSocket (JSON) ──→ gateway.py ←── UDP / protobuf ──→ led_server_pb (C) ──→ FPGA LEDs
+           ws://localhost:8081         port 5006
+           http://localhost:8080
+```
+
+```mermaid
+flowchart LR
+    subgraph PC ["🖥️ PC (host)"]
+        direction TB
+        BROWSER["Browser\ndashboard.html"]
+        GW["gateway.py\nasyncio"]
+        BROWSER <-- "WebSocket\nJSON" --> GW
+    end
+
+    subgraph BOARD ["📟 DE10-Nano"]
+        direction TB
+        PB["led_server_pb\n(port 5006)"]
+        FPGA["FPGA LED PIO"]
+        PB --> FPGA
+    end
+
+    GW <-- "UDP\nprotobuf" --> PB
+```
+
+The **gateway** is the only new host-side component. It runs on your PC and acts as a protocol bridge:
+
+| Layer | Protocol | Who speaks it |
+|---|---|---|
+| Browser ↔ gateway | WebSocket + JSON | `dashboard.html` + `gateway.py` |
+| Gateway ↔ board | UDP + nanopb protobuf | `gateway.py` + `led_server_pb` |
+
+Because UDP datagrams are exchanged in an `asyncio` executor thread, the event loop is never blocked and multiple browsers can connect simultaneously.
+
+### Step 1 — Install dashboard dependencies
+
+```bash
+# 🖥️ Host — from 11_ethernet_hps_led/
+pip3 install -r dashboard/requirements.txt
+```
+
+This installs two Python packages:
+
+| Package | Version | Purpose |
+|---|---|---|
+| `websockets` | ≥ 10.0 | WebSocket server for browser clients |
+| `protobuf` | ≥ 4.0 | LedCommand/LedResponse encoding for the UDP bridge |
+
+> **Note:** `led_server_pb` must already be running on the board (port 5006). Verify with:
+> ```bash
+> # 📟 Target
+> ps aux | grep led_server_pb
+> ```
+
+### Step 2 — Start the dashboard
+
+```bash
+# 🖥️ Host — from 11_ethernet_hps_led/
+make dashboard BOARD=fe80::2833:8aff:fe95:cb3d%enx08beac224c03
+```
+
+Replace the `BOARD=` value with your board's IPv6 (or IPv4) address. The gateway prints its URLs on startup:
+
+```
+23:45:29  INFO  UDP → fe80::2833:8aff:fe95:cb3d%enx08beac224c03  port 5006  (IPv6)
+23:45:29  INFO  server listening on 127.0.0.1:8081
+23:45:29  INFO  Dashboard  →  http://localhost:8080
+23:45:29  INFO  WebSocket  →  ws://localhost:8081  (internal)
+23:45:29  INFO  Press Ctrl+C to stop.
+```
+
+### Step 3 — Open the browser
+
+Navigate to **http://localhost:8080**. You will see:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  💡 DE10-Nano LED Dashboard                        ● Connected  │
+├──────────────────────────────────────────────────────────────────┤
+│  FPGA LED State — click a circle to toggle                      │
+│                                                                  │
+│   ●  ●  ○  ●  ○  ●  ○  ●    0xFF     11111111                 │
+│   7  6  5  4  3  2  1  0                                       │
+│                                                                  │
+├──────────────────────────────────────────────────────────────────┤
+│  Presets & Animations                                           │
+│  [All On] [All Off] [0xAA] [0x55]                               │
+│  [Chase →] [Bounce ↔] [Blink] [Fill ↑]    Speed ─────● 200 ms │
+│                                                                  │
+├──────────────────────────────────────────────────────────────────┤
+│  Packet Log                                       [Clear]       │
+│  21:45:31  ←  GET_PATTERN  OK  0xFF                             │
+│  21:45:31  →  GET_PATTERN  —                                    │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Controls:**
+
+| UI element | Action |
+|---|---|
+| LED circle | Click to toggle that individual bit |
+| All On / All Off | Sets all 8 LEDs to 0xFF / 0x00 |
+| 0xAA / 0x55 | Sets alternating checkerboard patterns |
+| Chase → / Bounce ↔ / Blink / Fill ↑ | Starts a looping animation at the configured speed |
+| Clicking an active animation button | Stops the animation |
+| Speed slider | Sets the animation frame interval (50–800 ms) |
+
+### Step 4 — Observe the packet log
+
+Every UDP message to and from the board is decoded and shown in the **Packet Log** panel at the bottom of the page:
+
+```
+21:45:31  ←  SET_PATTERN  OK   0x55
+21:45:31  →  SET_PATTERN  0x55
+21:45:30  ←  SET_PATTERN  OK   0xFF
+21:45:30  →  SET_PATTERN  0xFF
+```
+
+- `→` entries are outbound (browser → board) — shown in blue
+- `←` entries are inbound (board → browser) — shown in green
+- The `pattern` column shows the 8-bit LED bitmask in hex
+
+The gateway also polls the board every 2 seconds and pushes a `state` message if the pattern has changed (for example, if another client — such as `send_led_pattern_pb.py` — changes the LEDs while the dashboard is open).
+
+### Run the unit tests
+
+The gateway's protobuf helper functions (`pb_encode`, `pb_decode`) are tested without a board:
+
+```bash
+# 🖥️ Host — from 11_ethernet_hps_led/
+make test-dashboard
+```
+
+```
+test_all_patterns_preserved ... ok
+test_err_decode_fail        ... ok
+test_ok_status              ... ok
+...
+Ran 16 tests in 0.002s
+OK
+```
+
+---
+
+### Key files (§7.6)
+
+```
+11_ethernet_hps_led/
+└── dashboard/
+    ├── gateway.py          # asyncio WebSocket ↔ UDP bridge (~230 lines)
+    ├── dashboard.html      # single-file SPA — LED visualiser + controls + packet log
+    ├── requirements.txt    # websockets>=10.0, protobuf>=4.0
+    └── test_gateway.py     # pb_encode/pb_decode unit tests (16 tests, no board needed)
+```
+
+---
+
+### Code walkthrough (§7.6)
+
+#### `dashboard/gateway.py` — the bridge
+
+The gateway runs a single `asyncio` event loop with three concurrent tasks:
+
+1. **HTTP server** (`asyncio.start_server` on port 8080) — serves `dashboard.html` with the WebSocket port number substituted into the `{{WS_PORT}}` placeholder.
+
+2. **WebSocket server** (`websockets.serve` on port 8081) — for each connected browser, calls `_ws_connection()`. On connect, it immediately pushes the last-known LED state so the browser visualiser is always in sync.
+
+3. **Board polling** (`_poll_board` coroutine) — every 2 seconds, sends a `GET_PATTERN` command to the board. If the returned pattern differs from the cached value, it broadcasts a `state` message to all connected browsers.
+
+When a browser sends a JSON command, `_handle_message()` performs the translation:
+
+```python
+# 1. Log the outbound direction to all browsers
+await _broadcast({"type": "log", "entry": {"dir": "→", "command": cmd_name, ...}})
+
+# 2. Call led_server_pb via UDP (blocking, run in executor)
+result = await loop.run_in_executor(None, udp.send, command, pattern)
+
+# 3. Broadcast the inbound response and the updated LED state
+await _broadcast({"type": "log", "entry": {"dir": "←", "status": result["status"], ...}})
+await _broadcast({"type": "state", "pattern": result["pattern"]})
+```
+
+`loop.run_in_executor(None, ...)` runs the blocking `socket.sendto()` / `socket.recvfrom()` call in the default thread pool so the event loop is never blocked.
+
+#### `dashboard/dashboard.html` — the browser SPA
+
+A single file with no build step and no external dependencies. All logic is in an inline `<script>` block.
+
+On load, it opens a WebSocket connection to `ws://localhost:{{WS_PORT}}` (the port is injected by the gateway's HTTP handler at serve time):
+
+```javascript
+const ws = new WebSocket("ws://localhost:{{WS_PORT}}");
+```
+
+Incoming `state` messages drive the LED visualiser:
+
+```javascript
+ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "state") renderLeds(msg.pattern);
+    else if (msg.type === "log")  appendLog(msg.entry);
+    else if (msg.type === "error") appendError(msg);
+};
+
+function renderLeds(pattern) {
+    for (let i = 0; i < 8; i++) {
+        const el = document.getElementById("led" + i);
+        el.className = "led " + ((pattern >> i) & 1 ? "on" : "off");
+    }
+}
+```
+
+Clicking an LED circle calls `toggleLed(bit)` which XORs the current pattern and sends a `SET_PATTERN` command:
+
+```javascript
+function toggleLed(bit) {
+    sendCmd("SET_PATTERN", currentPattern ^ (1 << bit));
+}
+```
+
+Client-side animations loop in the browser, sending `SET_PATTERN` at each frame:
+
+```javascript
+function toggleAnim(name) {
+    const frames = ANIMATIONS[name];  // e.g. [0x01, 0x02, 0x04, ...]
+    function step() {
+        sendCmd("SET_PATTERN", frames[animIdx++ % frames.length]);
+        animTimer = setTimeout(step, getSpeed());
+    }
+    step();
+}
+```
+
+This means every animation frame generates one UDP round-trip and one log entry in the packet log panel, making the flow entirely transparent.
+
+---
+
+### Troubleshooting (Phase 7.6)
+
+#### `make dashboard` fails: `Set BOARD=<board-ip>`
+
+You must supply the board address:
+
+```bash
+make dashboard BOARD=fe80::2833:8aff:fe95:cb3d%enx08beac224c03
+```
+
+#### Browser shows "Connecting…" and never connects
+
+The WebSocket connection to port 8081 is refused. Check that the gateway is running:
+
+```bash
+# 🖥️ Host
+make dashboard BOARD=<board-ip>
+# Check for: "server listening on 127.0.0.1:8081"
+```
+
+If another process already uses port 8081, change it:
+
+```bash
+python3 dashboard/gateway.py --host <board-ip> --ws-port 8082 --http-port 8083
+```
+
+#### LED state never updates / "UDP timeout" in the log
+
+`led_server_pb` is not running on the board. Start it manually:
+
+```bash
+# 📟 Target
+led_server_pb &
+```
+
+Or verify it is listening:
+
+```bash
+# 📟 Target
+ps aux | grep led_server_pb
+```
+
+#### `ModuleNotFoundError: No module named 'led_command_pb2'`
+
+The Python protobuf stubs are missing. Regenerate them:
+
+```bash
+# 🖥️ Host — from 11_ethernet_hps_led/
+make proto
+```
 
 ---
 
 ## Next steps
 
-- **Phase 7.6 — Web Dashboard:** Add a lightweight HTTP server (e.g. `mongoose` or BusyBox `httpd`) to the Buildroot image alongside `led_server_pb`. A small JavaScript frontend sends `LedCommand` requests to a REST/WebSocket bridge, allowing any browser on the local network to control the LEDs without installing a Python client.
 - **MQTT / CoAP broker:** Add an MQTT broker (e.g. Mosquitto) to the Buildroot image and publish LED state to a topic. Any MQTT client (Home Assistant, Node-RED, phone app) can then subscribe and control the LEDs.
 - **Phase 8 — Zephyr RTOS:** Port the LED server to run on Zephyr RTOS (`west build -b cyclonev_socdk`) instead of Linux, exploring real-time constraints and the Zephyr networking stack.
 - **UIO driver:** Replace the `/dev/mem` approach with a `generic-uio` device tree node and `/dev/uio0`, removing the requirement for root access and the strict `/dev/mem` kernel config workaround.

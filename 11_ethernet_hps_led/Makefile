@@ -48,7 +48,8 @@ NANOPB_C_DIR := $(shell python3 -c \
     'generator', 'proto'))" 2>/dev/null)
 
 .PHONY: all rbf buildroot-download buildroot-config buildroot sdcard \
-        proto server-cross server-pb-cross test test-pb flash clean help
+        proto server-cross server-pb-cross test test-pb \
+        dashboard test-dashboard flash clean help
 
 all: rbf buildroot
 
@@ -60,8 +61,10 @@ help:
 	@echo "  proto            — Regenerate C/Python stubs from proto/led_command.proto"
 	@echo "  server-cross     — ARM cross-compile of led_server  (raw protocol, port 5005)"
 	@echo "  server-pb-cross  — ARM cross-compile of led_server_pb (protobuf, port 5006)"
+	@echo "  dashboard        — Install Python deps and start the Phase 7.6 web dashboard"
 	@echo "  test             — Run Phase 7 Python unit tests (no board required)"
 	@echo "  test-pb          — Run Phase 7.5 protobuf unit tests (no board required)"
+	@echo "  test-dashboard   — Run Phase 7.6 gateway unit tests (no board required)"
 	@echo "  flash            — Write sdcard.img to SD card (set SDCARD=/dev/sdX)"
 	@echo "  clean            — Remove generated files"
 	@echo ""
@@ -72,6 +75,10 @@ help:
 	@echo ""
 	@echo "Phase 7.5 PC client (protobuf, port 5006):"
 	@echo "  python3 client/send_led_pattern_pb.py --host <board-ip> --pattern 0xA5"
+	@echo ""
+	@echo "Phase 7.6 web dashboard:"
+	@echo "  make dashboard BOARD=<board-ip>"
+	@echo "  # Then open http://localhost:8080 in a browser"
 
 # ── FPGA bitstream ───────────────────────────────────────────────────────────
 # Phase 7 reuses the bitstream built by Phase 6. If it is already present
@@ -193,6 +200,34 @@ test:
 
 test-pb:
 	cd client && python3 test_protocol_pb.py
+
+# ── Phase 7.6: Web Dashboard ─────────────────────────────────────────────────
+# Installs Python dependencies and starts the asyncio gateway that serves
+# dashboard.html on http://localhost:8080 and bridges WebSocket ↔ UDP.
+#
+# Usage:
+#   make dashboard BOARD=192.168.1.100
+#   make dashboard BOARD=fe80::2833:8aff:fe95:cb3d%eth0
+BOARD ?=
+
+dashboard:
+ifndef BOARD
+	$(error Set BOARD=<board-ip>, e.g.: make dashboard BOARD=192.168.1.100)
+endif
+	pip3 install --quiet -r $(PROJECT_DIR)/dashboard/requirements.txt
+	@echo ""
+	@echo "═══════════════════════════════════════════════════════════════════"
+	@echo "  Phase 7.6 — LED Web Dashboard"
+	@echo "  Board:     $(BOARD)"
+	@echo "  Dashboard: http://localhost:8080"
+	@echo "  Press Ctrl+C to stop the gateway."
+	@echo "═══════════════════════════════════════════════════════════════════"
+	@echo ""
+	python3 $(PROJECT_DIR)/dashboard/gateway.py --host '$(BOARD)'
+
+# ── Phase 7.6: gateway unit tests (no board required) ────────────────────────
+test-dashboard:
+	cd $(PROJECT_DIR)/dashboard && python3 test_gateway.py
 
 # ── Flash SD card ─────────────────────────────────────────────────────────────
 SDCARD ?=
