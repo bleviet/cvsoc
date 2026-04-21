@@ -350,6 +350,54 @@ Zephyr with CoAP/MQTT (§8.4) is already complex. Adding protobuf there would la
     └── send_led_pattern_pb.py     # Python protobuf client
 ```
 
+### 7.6 Web Dashboard (Extension)
+
+**Goal:** Build a single-page web application that visualises the board's LED state in real time, lets the user control patterns via buttons, and displays a live log of the network packets exchanged. This extends §7.5 and makes the full IoT stack tangible — students see every message that crosses the network, decoded into human-readable protobuf field names.
+
+**Why this belongs here:**  
+Most embedded tutorials stop at the command line. A web dashboard amplifies the §7.5 protobuf lesson in a concrete way: the same `.proto` schema drives three languages simultaneously — `nanopb` in C (the server), `protobuf` in Python (the gateway), and `protobuf-js` or JSON transcoding in the browser. Students feel the "one schema, every language" promise first-hand.
+
+**Architecture — the IoT gateway pattern:**  
+The browser cannot send UDP packets directly; a Python bridge acts as a gateway between the web client and the board. This is a real-world IoT architecture: cloud or local services translate between browser-friendly protocols (WebSocket/HTTP) and constrained-device protocols (UDP, MQTT, CoAP).
+
+```
+Browser ←── WebSocket (JSON) ──→ Python gateway ←── UDP / protobuf ──→ led_server (C) ──→ FPGA LEDs
+```
+
+The gateway decodes every protobuf message and forwards it to the browser as JSON, so the packet log panel can show field names rather than raw hex bytes.
+
+**What is a WebSocket?**  
+HTTP is a request-response protocol — the browser sends a request and waits for one reply. WebSocket upgrades a single HTTP connection into a full-duplex channel: the server can push data to the browser at any time without the browser polling. This is how the LED visualiser updates instantly when another client changes the pattern.
+
+**What students build:**  
+A dependency-free single-page application (no npm, no Node.js, no framework — just a single `.html` file):
+- 8 animated SVG LED indicators that light up/dim as the board state changes
+- Pattern preset buttons (knight rider, binary counter, all on/off, …)
+- Individual toggle buttons for each LED
+- Live packet log panel showing timestamp, direction (→ board / ← board), command name, and field values
+
+**Implementation approach:**  
+- Python `asyncio` gateway: receives HTTP upgrade from browser, bridges to UDP socket; ~150 lines using `websockets` + `protobuf` libraries
+- Single-file `dashboard.html`: vanilla JS + SVG/CSS animations; ~200 lines; no build step
+- `make dashboard` installs dependencies and starts the gateway on `localhost:8080`
+
+**What students learn:**
+- The IoT gateway pattern: translating between protocols at a border node
+- WebSocket API and server-push vs. request-response
+- Protobuf-JSON transcoding (bridging typed binary formats to browser-friendly JSON)
+- SVG animation and CSS transitions for real-time data visualisation
+- Event-driven architecture: one event loop handling both WebSocket clients and a UDP socket concurrently
+
+**Key files added in §7.6:**
+```
+11_ethernet_hps_led/
+├── dashboard/
+│   ├── gateway.py                 # asyncio WebSocket ↔ UDP bridge
+│   ├── dashboard.html             # single-file SPA; LED visualiser + controls + packet log
+│   └── requirements.txt           # websockets, protobuf
+└── Makefile                       # adds `dashboard` target
+```
+
 ---
 
 ## Phase 8 — Real-Time OS (Zephyr)
