@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 de10_nano.rbf
 software/led_server/led_server
+software/led_server/led_server_pb
 buildroot-*/
 *.img
 *.dtbo
