@@ -1,0 +1,71 @@
+/*
+ * cyclonev_socdk.overlay — DE10-Nano hardware overlay for Phase 8 Zephyr demo
+ *
+ * The cyclonev_socdk board DTS defines the Cyclone V HPS peripherals.
+ * This overlay adds DE10-Nano-specific nodes:
+ *
+ *   1. fpga_leds — the 8 FPGA-fabric LEDs accessed via the Lightweight
+ *      HPS-to-FPGA bridge at 0xFF200000 (Avalon PIO DATA register).
+ *      Accessed via sys_write32() / sys_read32() in main.c.
+ *
+ *   2. buttons — KEY[0] and KEY[1] push buttons wired to HPS GPIO bank 2
+ *      (Zephyr device gpio1). GPIO interrupt mode triggers a semaphore
+ *      that advances the LED pattern.
+ *
+ * DE10-Nano pin assignments (from Terasic schematic):
+ *   KEY[0] → HPS_KEY0 → FPGA pin AH17 → HPS GPIO1[54]  (active-low)
+ *   KEY[1] → HPS_KEY1 → FPGA pin AH16 → HPS GPIO1[55]  (active-low)
+ *
+ * Note: HPS GPIO banks in Zephyr device numbering:
+ *   gpio0 = GPIO bank A (bits  0–28)  = HPS_GPIO[0..28]
+ *   gpio1 = GPIO bank B (bits 29–57)  = HPS_GPIO[29..57]
+ *   gpio2 = GPIO bank C (bits 58–66)  = HPS_GPIO[58..66]
+ *
+ * KEY[0] is HPS_GPIO[54] → gpio1 bit (54 - 29) = bit 25
+ * KEY[1] is HPS_GPIO[55] → gpio1 bit (55 - 29) = bit 26
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	aliases {
+		/* Push-button aliases (used by main.c via DT_ALIAS) */
+		sw0 = &key0;
+		sw1 = &key1;
+	};
+
+	buttons {
+		compatible = "gpio-keys";
+
+		key0: key_0 {
+			label = "KEY0";
+			gpios = <&gpio1 25 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		};
+
+		key1: key_1 {
+			label = "KEY1";
+			gpios = <&gpio1 26 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		};
+	};
+
+	/*
+	 * fpga_leds — pseudo-node documenting the FPGA LED PIO register.
+	 *
+	 * The Avalon PIO DATA register at 0xFF200000 is accessed via bare
+	 * sys_write32() in main.c.  We declare it here as a reserved-memory
+	 * node so the devicetree documents the hardware dependency, and
+	 * DT_REG_ADDR(DT_NODELABEL(fpga_leds)) gives the compile-time address.
+	 */
+	soc {
+		fpga_leds: fpga-led-pio@ff200000 {
+			compatible = "syscon";
+			reg = <0xff200000 0x10>;
+			reg-io-width = <4>;
+		};
+	};
+};
+
+/* Enable HPS GPIO banks used by the buttons */
+&gpio1 {
+	status = "okay";
+};

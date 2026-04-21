@@ -1,0 +1,16 @@
+manifest:
+  # Zephyr v3.7.0 — Long-Term Support release
+  # Compatible with Zephyr SDK 1.0.1
+  # Board: cyclonev_socdk (Intel Cyclone V SoC — same HPS as DE10-Nano)
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: main
+      import: true
+
+  self:
+    path: app

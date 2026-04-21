@@ -1,0 +1,19 @@
+# West workspace directories (populated by 'west init' + 'west update')
+# These are large checkouts (~1.5 GB) and must not be committed.
+zephyr/
+modules/
+bootloader/
+tools/
+.west/
+
+# Build output
+build/
+twister-out/
+
+# Editor / OS artifacts
+.vscode/settings.json
+*.swp
+*.swo
+*~
+__pycache__/
+*.pyc
