@@ -1,0 +1,9 @@
+config BR2_PACKAGE_FPGA_MGR_LOAD
+	bool "fpga-mgr-load"
+	help
+	  Kernel module that programs the Cyclone V FPGA from
+	  /lib/firmware/de10_nano.rbf using the kernel FPGA Manager API.
+
+	  Reused unchanged from Phase 6 (10_linux_led).
+
+	  https://github.com/bleviet/cvsoc

@@ -1,0 +1,36 @@
+#!/bin/sh
+# /etc/init.d/S40led_server — Start the UDP LED control server at boot.
+#
+# Runs after S30fpga_load (FPGA is programmed and bridge is enabled).
+# Starts led_server in the background, listening on UDP port 5005.
+
+PORT=5005
+LOGFILE=/var/log/led_server.log
+
+start() {
+    printf "Starting LED UDP server (port %d)... " "$PORT"
+    led_server --port "$PORT" >> "$LOGFILE" 2>&1 &
+    echo $! > /var/run/led_server.pid
+    echo "OK (PID $(cat /var/run/led_server.pid))"
+}
+
+stop() {
+    printf "Stopping LED UDP server... "
+    if [ -f /var/run/led_server.pid ]; then
+        kill "$(cat /var/run/led_server.pid)" 2>/dev/null || true
+        rm -f /var/run/led_server.pid
+    fi
+    echo "OK"
+}
+
+case "$1" in
+    start)   start  ;;
+    stop)    stop   ;;
+    restart) stop; start ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0

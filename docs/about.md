@@ -14,7 +14,8 @@
   * Remote Software Debugging with GDB for Nios II and the ARM CPU.
   * Embedded Linux configuration with the ARM CPU.
   * Real-Time OS (Zephyr) configuration with the ARM CPU.
-  * Control the LED from a PC through Ethernet.
+  * Control the LED from a PC through Ethernet (UDP socket protocol).
+  * Structured network serialization with Google Protocol Buffers (protobuf / nanopb).
 * On the way you will learn best practices of Intel FPGA development based (Cyclone V SoC) on the DE10-Nano board.
 * You will learn about scripting and about Continous Development/Continous Integration CI/CD as well
 * You will learn about clean coding, meaningful modularization, proper coding style

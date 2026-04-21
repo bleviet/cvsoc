@@ -1,0 +1,9 @@
+config BR2_PACKAGE_FPGA_LED
+	bool "fpga-led"
+	help
+	  User-space application that controls FPGA LEDs on the DE10-Nano
+	  board via /dev/mem mmap of the LW H2F bridge.
+
+	  Reused unchanged from Phase 6 (10_linux_led).
+
+	  https://github.com/bleviet/cvsoc

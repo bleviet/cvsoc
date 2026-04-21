@@ -319,6 +319,37 @@ Two sub-tracks (implement one or both):
 - Protocol specification: packet format, port numbers, command encoding
 - Network setup guide and PC-side tool usage
 
+### 7.5 Protocol Serialization with Protocol Buffers (Extension)
+
+**What is protobuf?**  
+Google Protocol Buffers (protobuf) is a binary serialization format. You define message schemas in `.proto` files and run a code generator to produce typed serialization/deserialization code for many languages (C via `nanopb`, Python, Go, etc.). Compared to raw byte-packing or JSON:
+- **Binary** — smaller and faster than text-based formats
+- **Schema-first** — the `.proto` file is a living API contract
+- **Multi-language** — one schema generates both the C server stub and the Python client code
+- **Evolvable** — adding fields does not break existing clients
+
+**Integration approach:**  
+This section extends Track A with a second, more robust wire format:
+1. **Step 1** (§7.2) — raw UDP: 2-byte request `[CMD][PATTERN]`, 2-byte response `[STATUS][PATTERN]`
+2. **Step 2** (§7.5) — define `led_command.proto` with `LedCommand` and `LedResponse` message types, regenerate the Python client and C server handler via `nanopb`
+
+The upgrade replaces only the serialization layer; the UDP transport and LED logic remain unchanged. This demonstrates how a proper serialization framework enables schema evolution (e.g., adding a `brightness` or `duration` field) without breaking older clients.
+
+**Why not Phase 8?**  
+Zephyr with CoAP/MQTT (§8.4) is already complex. Adding protobuf there would layer a third new concept onto an already dense phase. Phase 7 is the right home: the network transport is established, students already understand the wire format, and the upgrade is a surgical replacement of the byte-packing logic.
+
+**Key files added in §7.5:**
+```
+11_ethernet_hps_led/
+├── proto/
+│   └── led_command.proto          # Message definitions
+├── software/led_server/
+│   ├── led_command.pb.c           # nanopb generated (run: make proto)
+│   └── led_command.pb.h
+└── client/
+    └── send_led_pattern_pb.py     # Python protobuf client
+```
+
 ---
 
 ## Phase 8 — Real-Time OS (Zephyr)
