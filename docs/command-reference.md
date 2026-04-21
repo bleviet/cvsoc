@@ -2,7 +2,7 @@
 
 > **Type:** Reference  
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
-> **Applies to:** All phases (00 – 09)
+> **Applies to:** All phases (00 – 11)
 
 ---
 
@@ -33,7 +33,8 @@ make <target> VARIABLE=value
 11. [ARM toolchain](#11-arm-toolchain)
 12. [OpenOCD](#12-openocd)
 13. [Make variable overrides](#13-make-variable-overrides)
-14. [Per-phase quick reference](#14-per-phase-quick-reference)
+14. [Phase 11 — Ethernet LED server](#14-phase-11--ethernet-led-server)
+15. [Per-phase quick reference](#15-per-phase-quick-reference)
 
 ---
 
@@ -868,37 +869,211 @@ All variables have defaults in each Makefile and can be overridden on the comman
 | `USBIPD_BUSID` | `2-4` | USB bus ID of the USB-Blaster II | 04–09 |
 | `USBIPD` | `usbipd.exe` | Path to `usbipd-win` executable | 04–09 |
 | `QUARTUS_PGM` | `/mnt/c/intelFPGA_lite/23.1std/qprogrammer/bin64/quartus_pgm.exe` | Path to `quartus_pgm.exe` | 04–09 |
-| `DOCKER_IMAGE` | `cvsoc/quartus:23.1` | Docker image for build and debug containers | 04–09 |
-| `ARM_CC` | `arm-linux-gnueabihf-gcc` | ARM cross-compiler | 05, 07, 09 |
+| `DOCKER_IMAGE` | `cvsoc/quartus:23.1` | Docker image for build and debug containers | 04–11 |
+| `ARM_CC` | `arm-linux-gnueabihf-gcc` | ARM cross-compiler | 05, 07, 09, 11 |
 | `HPS_IP` | `192.168.1.100` | Board IP address for `deploy-elf` (SSH) | 05, 07, 09 |
 | `HPS_USER` | `root` | SSH user for `deploy-elf` | 05, 07, 09 |
 | `GDB_PORT` | `2345` (Nios II) / `3333` (HPS) | TCP port for GDB server | 08, 09 |
+| `SDCARD` | *(required)* | SD card block device for `make flash` | 10, 11 |
+| `BOARD_HOST` | *(required)* | Board IPv6/IPv4 address (with zone ID for link-local) | 11 |
+| `BOARD_PORT` | `5005` | UDP port of the LED server | 11 |
 
 ---
 
-## 14. Per-phase quick reference
+## 14. Phase 11 — Ethernet LED server
 
-| Target | 00 | 01 | 04 | 05 | 06 | 07 | 08 | 09 |
-|--------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| `all` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `clean` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `project` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `compile` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `check_timing` | ✓ | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `setup` | — | — | — | ✓ | — | ✓ | — | ✓ |
-| `qsys` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `patch-oct` | — | — | — | ✓ | — | ✓ | — | ✓ |
-| `bsp` | — | — | ✓ | — | ✓ | — | ✓ | — |
-| `app` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `program-sof` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `download-elf` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `deploy-elf` | — | — | — | ✓ | — | ✓ | — | ✓ |
-| `terminal` | — | — | ✓ | — | ✓ | — | ✓ | — |
-| `usb-windows` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `usb-wsl` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `gdb-server` | — | — | — | — | — | — | ✓ | — |
-| `gdb` | — | — | — | — | — | — | ✓ | ✓ |
-| `openocd` | — | — | — | — | — | — | — | ✓ |
+All targets in this section are invoked from the `11_ethernet_hps_led/` directory (no `quartus/` subdirectory — this phase has no Quartus project).
+
+```bash
+cd 11_ethernet_hps_led
+make <target>
+```
+
+### `make all`
+
+Runs `rbf` then `buildroot`: copies the Phase 6 bitstream and builds the complete Linux SD card image.
+
+---
+
+### `make rbf`
+
+Copies the compressed FPGA bitstream from Phase 6 (`10_linux_led/de10_nano.rbf`) to the local directory. Does **not** run Quartus or Docker — Phase 6 must have already produced the `.rbf`.
+
+```bash
+make rbf
+```
+
+If `10_linux_led/de10_nano.rbf` is missing:
+
+```bash
+cd ../10_linux_led && make rbf   # requires cvsoc/quartus:23.1 Docker image
+```
+
+---
+
+### `make buildroot-download`
+
+Downloads and extracts Buildroot 2024.11.1 to `buildroot-2024.11.1/`. Safe to run repeatedly — skipped if the directory already exists.
+
+```bash
+make buildroot-download
+```
+
+---
+
+### `make buildroot-config`
+
+Applies `de10_nano_defconfig` to the Buildroot source tree with `BR2_EXTERNAL` pointing to `br2-external/`.
+
+```bash
+make buildroot-config
+```
+
+---
+
+### `make buildroot`
+
+Full Buildroot build: cross-compiler, Linux kernel, U-Boot, BusyBox, `led_server`, Dropbear, `fpga_load.ko`, and the SD card image. Calls `rbf` and `buildroot-config` automatically. Runs `led-server-dirclean` before building to pick up source changes.
+
+```bash
+make buildroot
+```
+
+> **Duration:** 15–30 minutes on first run. Subsequent runs that only change `led_server.c` are faster with `make server-cross` + `scp` (see below).
+
+Output: `buildroot-2024.11.1/output/images/sdcard.img`
+
+---
+
+### `make server-cross`
+
+Standalone ARM cross-compile of `led_server.c` using `arm-linux-gnueabihf-gcc` inside the `cvsoc/quartus:23.1` Docker container. Faster than a full Buildroot rebuild for iterative development.
+
+```bash
+# 🐳 Runs inside Docker
+make server-cross
+```
+
+Output: `software/led_server/led_server` (ARM ELF, ready to `scp` to the board)
+
+Deploy to the running board:
+
+```bash
+BOARD="root@fe80::...%enx..."
+ssh "$BOARD" "/etc/init.d/S40led_server stop"
+scp software/led_server/led_server "$BOARD:/tmp/led_server"
+ssh "$BOARD" "mv /tmp/led_server /usr/bin/led_server && chmod +x /usr/bin/led_server && /etc/init.d/S40led_server start"
+```
+
+Override the compiler:
+
+```bash
+make server-cross ARM_CC=buildroot-2024.11.1/output/host/bin/arm-linux-gnueabihf-gcc
+```
+
+---
+
+### `make test`
+
+Runs the Python protocol unit tests in `client/test_protocol.py`. No board or network connection required.
+
+```bash
+make test
+```
+
+---
+
+### `make flash`
+
+Writes `sdcard.img` to a physical SD card. Requires `SDCARD` to be set. Prints a 5-second countdown before writing.
+
+```bash
+make flash SDCARD=/dev/sdX
+# Or:
+sudo dd if=buildroot-2024.11.1/output/images/sdcard.img of=/dev/sdX bs=4M status=progress conv=fsync
+```
+
+---
+
+### `make clean`
+
+Removes `de10_nano.rbf` and the entire `buildroot-*` directory.
+
+```bash
+make clean
+```
+
+---
+
+### `make help`
+
+Prints a summary of all targets and the expected client command.
+
+---
+
+### PC client — `send_led_pattern.py`
+
+The Python client lives in `client/`. It supports IPv4, IPv6 global, and link-local addresses with zone IDs.
+
+```bash
+# Set a specific 8-bit LED pattern
+python3 client/send_led_pattern.py --host <board-addr> --pattern 0xA5
+
+# Read the current LED state
+python3 client/send_led_pattern.py --host <board-addr> --get
+
+# Run a named animation (loops until Ctrl+C)
+python3 client/send_led_pattern.py --host <board-addr> --animate chase
+python3 client/send_led_pattern.py --host <board-addr> --animate breathe --speed 200
+
+# Link-local IPv6 (WSL2 — include zone ID with % separator)
+python3 client/send_led_pattern.py \
+    --host "fe80::2833:8aff:fe95:cb3d%enx08beac224c03" \
+    --pattern 0xFF
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--host` | *(required)* | Board IP address, hostname, or `fe80::...%iface` link-local |
+| `--port` | `5005` | UDP port |
+| `--pattern` | — | Hex LED pattern to SET, e.g. `0xA5` |
+| `--get` | — | Read current pattern |
+| `--animate` | — | Named animation: `chase`, `breathe`, `blink`, `stripes`, `all` |
+| `--speed` | `100` | Animation step interval in milliseconds |
+
+---
+
+## 15. Per-phase quick reference
+
+| Target | 00 | 01 | 04 | 05 | 06 | 07 | 08 | 09 | 10 | 11 |
+|--------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| `all` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `clean` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `project` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `compile` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `check_timing` | ✓ | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `setup` | — | — | — | ✓ | — | ✓ | — | ✓ | — | — |
+| `qsys` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `patch-oct` | — | — | — | ✓ | — | ✓ | — | ✓ | — | — |
+| `bsp` | — | — | ✓ | — | ✓ | — | ✓ | — | — | — |
+| `app` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `program-sof` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `download-elf` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `deploy-elf` | — | — | — | ✓ | — | ✓ | — | ✓ | — | — |
+| `terminal` | — | — | ✓ | — | ✓ | — | ✓ | — | — | — |
+| `usb-windows` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `usb-wsl` | — | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `gdb-server` | — | — | — | — | — | — | ✓ | — | — | — |
+| `gdb` | — | — | — | — | — | — | ✓ | ✓ | — | — |
+| `openocd` | — | — | — | — | — | — | — | ✓ | — | — |
+| `rbf` | — | — | — | — | — | — | — | — | ✓ | ✓ |
+| `buildroot-download` | — | — | — | — | — | — | — | — | ✓ | ✓ |
+| `buildroot-config` | — | — | — | — | — | — | — | — | ✓ | ✓ |
+| `buildroot` | — | — | — | — | — | — | — | — | ✓ | ✓ |
+| `app-cross` | — | — | — | — | — | — | — | — | ✓ | — |
+| `server-cross` | — | — | — | — | — | — | — | — | — | ✓ |
+| `test` | — | — | — | — | — | — | — | — | — | ✓ |
+| `flash` | — | — | — | — | — | — | — | — | ✓ | ✓ |
 
 ### Phase descriptions
 
@@ -912,3 +1087,5 @@ All variables have defaults in each Makefile and can be overridden on the comman
 | `07_hps_interrupts` | HPS bare-metal | Cortex-A9 | FPGA-to-HPS IRQ routed through GIC to ARM ISR |
 | `08_nios2_debug` | Nios II debug | Nios II/e | GDB debugging via `nios2-gdb-server` over JTAG |
 | `09_hps_debug` | HPS debug | Cortex-A9 | GDB debugging via OpenOCD `aji_client` over JTAG |
+| `10_linux_led` | Embedded Linux | Cortex-A9 (Linux) | Buildroot Linux image; FPGA programmed at boot via kernel module; LED control from user-space C and Python via `mmap(/dev/mem)` |
+| `11_ethernet_hps_led` | Ethernet LED control | Cortex-A9 (Linux) | Buildroot Linux image with UDP `led_server` + Dropbear SSH; LED patterns sent over UDP from a PC Python client |

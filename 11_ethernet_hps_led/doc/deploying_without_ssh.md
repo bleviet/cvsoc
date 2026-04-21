@@ -23,6 +23,76 @@ Serial  : /dev/ttyUSB0 @ 115200 baud
 
 ---
 
+## Obstacle 0 — The Host USB-Ethernet Interface Is Down
+
+### Symptom
+
+After plugging the USB-Ethernet adapter into the host, `ip link` shows the interface but it never gets a link-local address:
+
+```
+$ ip addr show enx08beac224c03
+23: enx08beac224c03: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN …
+    link/ether 08:be:ac:22:4c:03 brd ff:ff:ff:ff:ff:ff
+```
+
+State is `DOWN`, no `inet6` line — the board is unreachable even though the cable is plugged in.
+
+### Theory: Why the Interface Stays Down
+
+On a standard desktop Linux system, **NetworkManager** or **systemd-networkd** automatically brings up network interfaces when a cable is detected.  
+In a **WSL2** environment (and on headless servers or minimal installs) these daemons are either absent or do not manage USB-Ethernet adapters passed through via `usbipd`.  
+Without a userspace daemon issuing `SIOCIFFLAGS` to set the `IFF_UP` flag, the kernel leaves the interface administratively down.
+
+An interface that is `DOWN`:
+- Does not send or receive any frames — the kernel drops all outbound packets and the driver discards inbound ones.
+- Does **not** run IPv6 Stateless Address Autoconfiguration (SLAAC).  
+  The `fe80::` link-local address is only generated once the interface transitions to `UP`, at which point the kernel runs Duplicate Address Detection (DAD) and assigns the EUI-64-derived address.
+
+### Resolution
+
+```sh
+sudo ip link set enx08beac224c03 up
+sleep 2
+ip addr show enx08beac224c03
+```
+
+**Line by line:**
+
+| Command | What it does |
+|---------|-------------|
+| `sudo ip link set enx08beac224c03 up` | Sets the `IFF_UP` flag in the kernel via a `SIOCSIFFLAGS` ioctl. Requires `CAP_NET_ADMIN` — hence `sudo`. The driver sends a carrier-detect signal and the NIC begins forwarding frames. |
+| `sleep 2` | Waits for IPv6 SLAAC to complete. The kernel immediately starts **Duplicate Address Detection (DAD)**: it sends a Neighbor Solicitation for the tentative `fe80::` address and waits ~1 second for a conflicting reply before promoting the address to `preferred`. Skipping the sleep risks running the next command before the address appears. |
+| `ip addr show enx08beac224c03` | Confirms the interface is `UP` and that a `inet6 fe80::…` line is present. Without this confirmation step you may proceed assuming connectivity that does not yet exist. |
+
+Expected output after the commands:
+
+```
+23: enx08beac224c03: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 …
+    link/ether 08:be:ac:22:4c:03 brd ff:ff:ff:ff:ff:ff
+    inet6 fe80::abe:acff:fe22:4c03/64 scope link
+       valid_lft forever preferred_lft forever
+```
+
+`UP,LOWER_UP` means the interface is administratively up **and** physical carrier is detected (the board is powered and connected).  
+The `inet6 fe80::` address is now the host's handle for communicating with the board.
+
+### Discovering the Board's Address
+
+Once both sides have link-local addresses, find the board's address by pinging the **all-nodes multicast** group:
+
+```sh
+ping6 -I enx08beac224c03 ff02::1
+```
+
+Every IPv6-capable host on the link replies. Your own interface address (`fe80::abe:acff:fe22:4c03` — derived from the adapter MAC `08:be:ac:22:4c:03`) can be excluded; the remaining address is the board:
+
+```
+64 bytes from fe80::abe:acff:fe22:4c03%enx08beac224c03: …   ← host (yours)
+64 bytes from fe80::2833:8aff:fe95:cb3d%enx08beac224c03: …  ← board
+```
+
+---
+
 ## Obstacle 1 — The Board Has No IPv4 Address
 
 ### Symptom
@@ -393,18 +463,91 @@ The key insight is that for `AF_INET6` the address tuple has **four** elements `
 
 ### 1. Add Dropbear to the Buildroot Image
 
-The single most impactful change: add one line to `11_ethernet_hps_led/br2-external/configs/de10_nano_defconfig`:
+Add these two lines to `11_ethernet_hps_led/br2-external/configs/de10_nano_defconfig`:
 
 ```
 BR2_PACKAGE_DROPBEAR=y
+BR2_TARGET_GENERIC_ROOT_PASSWD="root"
 ```
 
-Dropbear is a lightweight SSH server+client (≈ 350 KB on ARM), purpose-built for embedded systems.  
-With it, Option B becomes exactly what the README describes:
+Dropbear is a lightweight SSH server+client (≈ 350 KB on ARM), purpose-built for embedded systems.
+
+#### Why a root password is required
+
+Dropbear refuses password-based login for accounts with an **empty password** (the Buildroot default when `BR2_TARGET_GENERIC_ROOT_PASSWD` is unset or `""`).  
+Without a password, only **SSH public-key authentication** works.
+
+Setting `BR2_TARGET_GENERIC_ROOT_PASSWD="root"` in the defconfig makes Buildroot call `passwd` during the rootfs build, storing the hashed password in `/etc/shadow`.  
+For a development board on a trusted bench network this is acceptable.  
+For production, use public-key auth exclusively (keep the password empty) and embed a known key into the image via a rootfs overlay.
+
+#### Setting up SSH public-key auth (when root password is empty / for production use)
+
+**Step 1 — Generate a key pair on the host** (skip if you already have one):
+
+```sh
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C "cvsoc-board"
+```
+
+This creates `~/.ssh/id_ed25519` (private) and `~/.ssh/id_ed25519.pub` (public).  
+Never share or commit the private key.
+
+**Step 2 — Copy the public key to the board**
+
+*Option A — via `ssh-copy-id` (once a password is set):*
+
+```sh
+ssh-copy-id -i ~/.ssh/id_ed25519.pub \
+    "root@[fe80::…%enx08beac224c03]"
+```
+
+`ssh-copy-id` logs in with the password, appends the key to `/root/.ssh/authorized_keys`, and sets the correct permissions automatically.
+
+*Option B — via serial console (bootstrap, when no SSH yet):*
+
+```python
+import serial, time
+
+PUBKEY = open('/home/<user>/.ssh/id_ed25519.pub').read().strip()
+s = serial.Serial('/dev/ttyUSB0', 115200, timeout=3)
+
+def send_cmd(cmd, wait=2):
+    s.write((cmd + '\r\n').encode())
+    s.flush()
+    time.sleep(wait)
+    out = b''
+    while s.in_waiting:
+        out += s.read(s.in_waiting)
+        time.sleep(0.1)
+    return out.decode(errors='replace')
+
+send_cmd('mkdir -p /root/.ssh && chmod 700 /root/.ssh')
+send_cmd(f'echo "{PUBKEY}" > /root/.ssh/authorized_keys')
+send_cmd('chmod 600 /root/.ssh/authorized_keys')
+s.close()
+```
+
+**Step 3 — Verify key auth works:**
+
+```sh
+ssh -i ~/.ssh/id_ed25519 "root@[fe80::…%enx08beac224c03]" "uname -a"
+```
+
+#### The `scp` deployment workflow (with Dropbear)
+
+With Dropbear installed and either a password or an SSH key in place, Option B works exactly as the README describes:
 
 ```sh
 make server-cross
-scp software/led_server/led_server root@[fe80::…%enx…]:/usr/bin/
+scp software/led_server/led_server \
+    "root@[fe80::2833:8aff:fe95:cb3d%enx08beac224c03]:/usr/bin/"
+```
+
+To discover the board's link-local IPv6 address, ping the all-nodes multicast on the host interface:
+
+```sh
+ping6 -I enx08beac224c03 ff02::1
+# Look for the address that is not your own interface address
 ```
 
 ### 2. Use `getaddrinfo` from the Start
@@ -433,9 +576,14 @@ This costs nothing and works correctly in all deployment scenarios (DHCP IPv4, D
 
 | Situation | Tool | Command |
 |-----------|------|---------|
+| USB-Ethernet adapter is DOWN | ip link | `sudo ip link set enx08beac224c03 up && sleep 2 && ip addr show enx08beac224c03` |
 | Board has no SSH | HTTP pull | `python3 -m http.server 8080 --bind ::` on host; `python3 -c "urllib.request.urlretrieve(…)"` on board |
 | Serial port locked by picocom | /proc fd access | `os.open('/proc/<pid>/fd/3', os.O_WRONLY)` |
 | BusyBox wget rejects link-local IPv6 | Python 3 urllib | Supports `%25eth0` zone ID in URL |
 | Text file busy on running binary | Atomic rename | Download to `/tmp`, then `mv` |
 | IPv4-only socket, board has no IPv4 | Dual-stack socket | `AF_INET6` + `IPV6_V6ONLY=0` on server; `getaddrinfo()` on client |
 | Verify board reachability | ping6 | `ping6 -I enx08beac224c03 fe80::<board-mac-addr>` |
+| Discover board IPv6 address | ping6 multicast | `ping6 -I enx08beac224c03 ff02::1` |
+| Bootstrap SSH key (no password yet) | pyserial | Write `echo "<pubkey>" >> /root/.ssh/authorized_keys` via serial |
+| Copy SSH key (password set) | ssh-copy-id | `ssh-copy-id -i ~/.ssh/id_ed25519.pub "root@[fe80::…%enx…]"` |
+| Deploy binary via SSH | scp | `scp led_server "root@[fe80::…%enx…]:/usr/bin/"` |
