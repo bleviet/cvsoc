@@ -18,19 +18,19 @@ By the end of this tutorial you will control the DE10-Nano's FPGA LEDs remotely 
 ```mermaid
 flowchart LR
     subgraph PC ["🖥️ PC (host)"]
-        CLIENT["send_led_pattern.py\n--host fe80::...\n--pattern 0xA5"]
+        CLIENT["send_led_pattern.py<br/>--host fe80::...<br/>--pattern 0xA5"]
     end
 
     subgraph NET ["Network (UDP)"]
         direction LR
-        PKT["2-byte packet\n[0x01][0xA5]\nport 5005"]
+        PKT["2-byte packet<br/>[0x01][0xA5]<br/>port 5005"]
     end
 
     subgraph BOARD ["📟 DE10-Nano"]
         direction TB
-        LINUX["Linux 6.6 / HPS ARM\nled_server (PID 90)"]
-        MEM["mmap(/dev/mem)\n@ 0xFF200000"]
-        FPGA["FPGA LED PIO\n(8 LEDs)"]
+        LINUX["Linux 6.6 / HPS ARM<br/>led_server (PID 90)"]
+        MEM["mmap(/dev/mem)<br/>@ 0xFF200000"]
+        FPGA["FPGA LED PIO<br/>(8 LEDs)"]
         LINUX --> MEM --> FPGA
     end
 
