@@ -38,26 +38,40 @@ SDCARD_IMG        := $(BR2_OUTPUT_DIR)/images/sdcard.img
 # ── Cross-compiler ───────────────────────────────────────────────────────────
 ARM_CC ?= arm-linux-gnueabihf-gcc
 
+# ── nanopb generator (used by 'make proto') ───────────────────────────────────
+NANOPB_GEN := $(shell python3 -c \
+    "import nanopb, os; print(os.path.join(os.path.dirname(nanopb.__file__), \
+    'generator', 'nanopb_generator.py'))" 2>/dev/null)
+
+NANOPB_C_DIR := $(shell python3 -c \
+    "import nanopb, os; print(os.path.join(os.path.dirname(nanopb.__file__), \
+    'generator', 'proto'))" 2>/dev/null)
+
 .PHONY: all rbf buildroot-download buildroot-config buildroot sdcard \
-        server-cross test flash clean help
+        proto server-cross server-pb-cross test test-pb flash clean help
 
 all: rbf buildroot
 
 help:
 	@echo "Targets:"
-	@echo "  all             — Build everything (rbf + Linux SD card image)"
-	@echo "  rbf             — Copy/verify FPGA bitstream from Phase 6"
-	@echo "  buildroot       — Full Buildroot build (kernel, U-Boot, rootfs, SD card)"
-	@echo "  server-cross    — Standalone ARM cross-compile of led_server"
-	@echo "  test            — Run Python unit tests (no board required)"
-	@echo "  flash           — Write sdcard.img to SD card (set SDCARD=/dev/sdX)"
-	@echo "  clean           — Remove generated files"
+	@echo "  all              — Build everything (rbf + Linux SD card image)"
+	@echo "  rbf              — Copy/verify FPGA bitstream from Phase 6"
+	@echo "  buildroot        — Full Buildroot build (kernel, U-Boot, rootfs, SD card)"
+	@echo "  proto            — Regenerate C/Python stubs from proto/led_command.proto"
+	@echo "  server-cross     — ARM cross-compile of led_server  (raw protocol, port 5005)"
+	@echo "  server-pb-cross  — ARM cross-compile of led_server_pb (protobuf, port 5006)"
+	@echo "  test             — Run Phase 7 Python unit tests (no board required)"
+	@echo "  test-pb          — Run Phase 7.5 protobuf unit tests (no board required)"
+	@echo "  flash            — Write sdcard.img to SD card (set SDCARD=/dev/sdX)"
+	@echo "  clean            — Remove generated files"
 	@echo ""
 	@echo "Output: $(SDCARD_IMG)"
 	@echo ""
-	@echo "PC client (after board boots):"
+	@echo "Phase 7 PC client (raw protocol, port 5005):"
 	@echo "  python3 client/send_led_pattern.py --host <board-ip> --pattern 0xA5"
-	@echo "  python3 client/send_led_pattern.py --host <board-ip> --animate chase"
+	@echo ""
+	@echo "Phase 7.5 PC client (protobuf, port 5006):"
+	@echo "  python3 client/send_led_pattern_pb.py --host <board-ip> --pattern 0xA5"
 
 # ── FPGA bitstream ───────────────────────────────────────────────────────────
 # Phase 7 reuses the bitstream built by Phase 6. If it is already present
@@ -113,7 +127,7 @@ buildroot: rbf buildroot-config
 
 sdcard: buildroot
 
-# ── Standalone cross-compile ──────────────────────────────────────────────────
+# ── Standalone cross-compile (Phase 7: raw protocol) ─────────────────────────
 # Useful for quick iterations: recompile and scp to the running board.
 server-cross:
 	docker run --rm \
@@ -125,9 +139,60 @@ server-cross:
 	@echo "Binary: software/led_server/led_server"
 	@echo "  scp software/led_server/led_server root@<board-ip>:/usr/bin/"
 
+# ── Standalone cross-compile (Phase 7.5: protobuf server) ────────────────────
+# Cross-compiles led_server_pb using the nanopb runtime bundled in
+# software/led_server/nanopb/ (copied from nanopb-0.4.9.1).
+# Uses Docker (same cross-compiler as server-cross).
+server-pb-cross:
+	docker run --rm \
+	    -v $(REPO_ROOT):/work \
+	    $(DOCKER_IMAGE) \
+	    arm-linux-gnueabihf-gcc -O2 -Wall -Wextra \
+	        -I/work/11_ethernet_hps_led/software/led_server/nanopb \
+	        -o /work/11_ethernet_hps_led/software/led_server/led_server_pb \
+	        /work/11_ethernet_hps_led/software/led_server/led_server_pb.c \
+	        /work/11_ethernet_hps_led/software/led_server/led_command.pb.c \
+	        /work/11_ethernet_hps_led/software/led_server/nanopb/pb_encode.c \
+	        /work/11_ethernet_hps_led/software/led_server/nanopb/pb_decode.c \
+	        /work/11_ethernet_hps_led/software/led_server/nanopb/pb_common.c
+	@echo ""
+	@echo "Binary: software/led_server/led_server_pb"
+	@echo "Deploy to board (replace \$$BOARD with your board address):"
+	@echo "  scp software/led_server/led_server_pb root@\$$BOARD:/usr/bin/"
+	@echo "  ssh root@\$$BOARD 'chmod +x /usr/bin/led_server_pb && led_server_pb &'"
+
+# ── Regenerate protobuf stubs from proto/led_command.proto ───────────────────
+# Requires: pip install nanopb grpcio-tools
+proto:
+	@echo "Generating nanopb C stubs..."
+	python3 $(NANOPB_GEN) $(PROJECT_DIR)/proto/led_command.proto \
+	    -D $(PROJECT_DIR)/software/led_server/ 2>&1 | grep -v "^$$"
+	@# Generator outputs into a 'proto/' subdir — flatten to led_server/
+	@if [ -f $(PROJECT_DIR)/software/led_server/proto/led_command.pb.c ]; then \
+	    mv $(PROJECT_DIR)/software/led_server/proto/led_command.pb.c \
+	       $(PROJECT_DIR)/software/led_server/led_command.pb.c; \
+	    mv $(PROJECT_DIR)/software/led_server/proto/led_command.pb.h \
+	       $(PROJECT_DIR)/software/led_server/led_command.pb.h; \
+	    rmdir $(PROJECT_DIR)/software/led_server/proto 2>/dev/null || true; \
+	    sed -i 's|#include "proto/led_command.pb.h"|#include "led_command.pb.h"|' \
+	        $(PROJECT_DIR)/software/led_server/led_command.pb.c; \
+	fi
+	@echo "Generating Python stubs..."
+	python3 -m grpc_tools.protoc \
+	    --proto_path=$(PROJECT_DIR)/proto \
+	    --python_out=$(PROJECT_DIR)/client/ \
+	    $(PROJECT_DIR)/proto/led_command.proto
+	@echo "Proto generation complete."
+	@echo "  software/led_server/led_command.pb.c"
+	@echo "  software/led_server/led_command.pb.h"
+	@echo "  client/led_command_pb2.py"
+
 # ── Python unit tests ─────────────────────────────────────────────────────────
 test:
 	cd client && python3 test_protocol.py
+
+test-pb:
+	cd client && python3 test_protocol_pb.py
 
 # ── Flash SD card ─────────────────────────────────────────────────────────────
 SDCARD ?=

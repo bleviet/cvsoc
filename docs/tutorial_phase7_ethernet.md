@@ -798,9 +798,504 @@ If you see `Error: mmap failed: Operation not permitted`, the kernel was compile
 
 ---
 
+## Phase 7.5 — Protocol Buffers (nanopb)
+
+In Phase 7 you built a functional UDP LED server with a deliberately simple wire protocol: a 2-byte request `[CMD][PATTERN]` and a 2-byte response `[STATUS][PATTERN]`. That protocol is fast and easy to understand, but it has limitations that grow as a project scales:
+
+- **No schema** — the meaning of each byte is implicit and must be documented separately.
+- **Fragile versioning** — adding a new field (e.g. LED brightness) requires updating every client and server simultaneously.
+- **Single-language** — the encoding logic must be re-implemented independently in C and Python.
+
+This section upgrades the wire layer to **Protocol Buffers** (protobuf), using [nanopb](https://jpa.kapsi.fi/nanopb/) for the embedded C server and the official `protoc` Python plugin for the PC client. The UDP transport and FPGA hardware logic remain identical; only the byte-packing layer changes.
+
+```mermaid
+flowchart LR
+    subgraph PC ["🖥️ PC (host)"]
+        direction TB
+        CLIENT["send_led_pattern_pb.py"]
+        PYSER["LedCommand.SerializeToString()"]
+        PYDER["LedResponse.ParseFromString()"]
+        CLIENT --> PYSER
+        PYDER --> CLIENT
+    end
+
+    subgraph NET ["Network (UDP port 5006)"]
+        direction LR
+        PKT["nanopb bytes\n≤ 8 bytes"]
+    end
+
+    subgraph BOARD ["📟 DE10-Nano"]
+        direction TB
+        SRV["led_server_pb"]
+        DEC["pb_decode(LedCommand)"]
+        HW["mmap /dev/mem\n@ 0xFF200000"]
+        ENC["pb_encode(LedResponse)"]
+        SRV --> DEC --> HW --> ENC --> SRV
+    end
+
+    PYSER -- "UDP IPv6" --> PKT --> DEC
+    ENC --> PKT --> PYDER
+```
+
+Both servers — the original `led_server` on port 5005 and the new `led_server_pb` on port 5006 — run simultaneously on the board, so you can compare the raw and protobuf protocols side-by-side.
+
+### Prerequisites for Phase 7.5
+
+Phase 7 must be complete: the board is running, `led_server` is reachable on port 5005, and `make server-cross` works. Install the Python tooling on your host once:
+
+```bash
+# 🖥️ Host
+pip install nanopb grpcio-tools
+```
+
+- `nanopb` provides the stub generator (`nanopb_generator.py`) that turns `.proto` files into C encoder/decoder code.
+- `grpcio-tools` bundles a copy of `protoc` accessible as `python -m grpc_tools.protoc`, which generates the Python classes.
+
+> **Note:** The generated stubs (`led_command.pb.c`, `led_command.pb.h`, `led_command_pb2.py`) are already committed to the repository. You only need to re-run `make proto` if you modify `proto/led_command.proto`.
+
+---
+
+### Step 9 — Explore the schema
+
+All message shapes live in a single source of truth:
+
+```
+11_ethernet_hps_led/
+└── proto/
+    └── led_command.proto
+```
+
+Open `proto/led_command.proto`:
+
+```protobuf
+syntax = "proto3";
+
+package led;
+
+// ── Command type ─────────────────────────────────────────────────────────────
+
+enum CommandType {
+  SET_PATTERN = 0;   // Write the supplied pattern to the FPGA LED PIO register.
+  GET_PATTERN = 1;   // Read the current register value (pattern field is ignored).
+}
+
+// ── Status codes ──────────────────────────────────────────────────────────────
+
+enum StatusCode {
+  OK               = 0;
+  ERR_UNKNOWN_CMD  = 1;
+  ERR_DECODE_FAIL  = 2;
+  ERR_INVALID_DATA = 3;
+}
+
+// ── Request: PC → board ───────────────────────────────────────────────────────
+
+message LedCommand {
+  CommandType command = 1;   // field tag 1
+  uint32      pattern = 2;   // field tag 2 — LED bitmask (0x00–0xFF)
+
+  // Future fields (commented out — schema evolution demo):
+  // uint32 brightness  = 3;
+  // uint32 duration_ms = 4;
+}
+
+// ── Response: board → PC ──────────────────────────────────────────────────────
+
+message LedResponse {
+  StatusCode status  = 1;
+  uint32     pattern = 2;   // current LED register value after the operation
+}
+```
+
+**What to notice:**
+
+| Detail | Explanation |
+|---|---|
+| `syntax = "proto3"` | Proto3 is the current version; all fields are optional with zero-value defaults, which is ideal for embedded systems where you want minimal wire bytes |
+| `package led;` | nanopb prefixes all generated C names with `led_` (e.g. `led_LedCommand`, `led_CommandType_SET_PATTERN`) |
+| Field tags (`= 1`, `= 2`) | These small integers are what actually appear on the wire — not the field names. This is the mechanism that enables schema evolution: a future field 3 (`brightness`) is simply ignored by any decoder that only understands fields 1 and 2 |
+| Zero-value defaults | In proto3, a field set to its default (`SET_PATTERN = 0`, `pattern = 0`) is **not encoded on the wire**. A `GET_PATTERN` request with `pattern = 0` therefore encodes as a single byte |
+| `ERR_DECODE_FAIL = 2` | The server sends this status code back when an incoming packet cannot be decoded as a valid `LedCommand` — e.g. when the raw 2-byte Phase 7 client accidentally sends a packet to the port 5006 server |
+
+---
+
+### Step 10 — Regenerate the stubs (optional)
+
+The committed stubs are up to date. If you modify `proto/led_command.proto` in the future, regenerate everything with one command:
+
+```bash
+# 🖥️ Host — from 11_ethernet_hps_led/
+make proto
+```
+
+Expected output:
+
+```
+Generating nanopb C stubs...
+Generating Python stubs...
+Proto generation complete.
+  software/led_server/led_command.pb.c
+  software/led_server/led_command.pb.h
+  client/led_command_pb2.py
+```
+
+The `make proto` target handles two quirks automatically:
+1. **Output directory flattening** — nanopb places generated files in a `proto/` subdirectory; the Makefile moves them up one level into `software/led_server/`.
+2. **Include path fix** — the generated `led_command.pb.c` initially contains `#include "proto/led_command.pb.h"`, which is wrong after the move; a `sed` call corrects it to `#include "led_command.pb.h"`.
+
+---
+
+### Step 11 — Cross-compile the protobuf server
+
+```bash
+# 🖥️ Host — from 11_ethernet_hps_led/
+make server-pb-cross
+```
+
+This runs the same Docker cross-compiler (`arm-linux-gnueabihf-gcc` inside `cvsoc/quartus:23.1`) that you used in Step 8, but compiles five source files: `led_server_pb.c`, `led_command.pb.c`, and the three nanopb runtime files bundled in `software/led_server/nanopb/`.
+
+```
+Binary: software/led_server/led_server_pb
+Deploy to board (replace $BOARD with your board address):
+  scp software/led_server/led_server_pb root@$BOARD:/usr/bin/
+  ssh root@$BOARD 'chmod +x /usr/bin/led_server_pb && led_server_pb &'
+```
+
+**Why bundle the nanopb runtime?**
+
+The `pip install nanopb` package contains only the generator tool, not the C runtime sources (`pb_encode.c`, `pb_decode.c`, `pb_common.c`). To ensure reproducible builds without depending on a system-level nanopb installation, the runtime is vendored in `software/led_server/nanopb/` from the official `nanopb-0.4.9.1` release.
+
+Verify the output is a valid ARM binary:
+
+```bash
+# 🖥️ Host
+file software/led_server/led_server_pb
+# → ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), dynamically linked ...
+```
+
+---
+
+### Step 12 — Deploy and start the protobuf server
+
+Set your board address in a shell variable to avoid repetition:
+
+```bash
+# 🖥️ Host
+export BOARD="fe80::2833:8aff:fe95:cb3d%enx08beac224c03"
+```
+
+Copy the binary. Note that SCP requires **bracket notation** for link-local IPv6 addresses:
+
+```bash
+# 🖥️ Host
+scp software/led_server/led_server_pb \
+    "root@[$BOARD]:/usr/bin/led_server_pb"
+```
+
+Start the server on the board. It runs on port **5006**, leaving the original `led_server` on 5005 untouched:
+
+```bash
+# 🖥️ Host
+ssh -6 "root@$BOARD" \
+    "chmod +x /usr/bin/led_server_pb && led_server_pb &"
+```
+
+```
+LED protobuf server listening on UDP port 5006
+LED PIO at 0xFF200000 (via /dev/mem)
+Protocol: nanopb LedCommand / LedResponse (Phase 7.5)
+Initial LED state: 0x00
+Press Ctrl+C to stop.
+```
+
+Verify both servers are running simultaneously:
+
+```bash
+# 🖥️ Host
+ssh -6 "root@$BOARD" "ps aux | grep led_server"
+```
+
+```
+ 90  root     led_server --port 5005        ← Phase 7 raw protocol
+ 95  root     led_server_pb                 ← Phase 7.5 protobuf
+```
+
+---
+
+### Step 13 — Send commands with the protobuf client
+
+The protobuf client (`send_led_pattern_pb.py`) has an identical CLI to the Phase 7 client, but serialises every request as a `LedCommand` protobuf message and deserialises the `LedResponse` reply.
+
+**Set a pattern:**
+
+```bash
+# 🖥️ Host — from 11_ethernet_hps_led/client/
+python3 send_led_pattern_pb.py \
+    --host "$BOARD" --pattern 0xA5
+```
+
+```
+SET 0xA5 → status=OK, LED=0xA5
+```
+
+**Read the current pattern:**
+
+```bash
+# 🖥️ Host
+python3 send_led_pattern_pb.py \
+    --host "$BOARD" --get
+```
+
+```
+Current LED pattern: 0xA5 (status: OK)
+```
+
+**Run an animation:**
+
+```bash
+# 🖥️ Host
+python3 send_led_pattern_pb.py \
+    --host "$BOARD" --animate chase --speed 80
+```
+
+```
+Running animation 'chase' at 80 ms/step (protobuf) — Ctrl+C to stop
+```
+
+**Compare raw and protobuf side-by-side** — both servers are running, so you can target either port:
+
+```bash
+# 🖥️ Host — Phase 7 raw protocol (port 5005)
+python3 send_led_pattern.py    --host "$BOARD" --pattern 0x0F
+# 🖥️ Host — Phase 7.5 protobuf  (port 5006)
+python3 send_led_pattern_pb.py --host "$BOARD" --pattern 0xF0
+```
+
+> **What happens if you send a raw 2-byte packet to the protobuf server?**
+>
+> The raw client uses port 5005 by default, but if you explicitly target port 5006 the protobuf server will attempt to parse the 2 bytes as a `LedCommand`. Protobuf is generally tolerant of short valid-looking encodings, but a random 2-byte payload that violates the wire format causes `pb_decode()` to fail. The server replies with a nanopb-encoded `LedResponse{status: ERR_DECODE_FAIL}` — demonstrating that the error path is exercised with a real protobuf response, not a crash or silent drop.
+
+---
+
+### Step 14 — Run the unit tests
+
+Phase 7.5 ships with 24 unit tests that cover encoding, decoding, round-trips, size limits, schema evolution, animations, and status name helpers — all without a network connection or a running board.
+
+```bash
+# 🖥️ Host — from 11_ethernet_hps_led/
+make test-pb
+```
+
+```
+test_all_animations_defined (TestAnimations) ... ok
+test_animation_values_in_byte_range (TestAnimations) ... ok
+test_animations_non_empty (TestAnimations) ... ok
+test_all_led_values_roundtrip (TestRequestEncoding) ... ok
+test_get_pattern_decodes_correctly (TestRequestEncoding) ... ok
+test_max_encoded_size_fits_nanopb_limit (TestRequestEncoding) ... ok
+test_max_pattern (TestRequestEncoding) ... ok
+test_pattern_masked_to_byte (TestRequestEncoding) ... ok
+test_set_pattern_decodes_correctly (TestRequestEncoding) ... ok
+test_set_pattern_is_bytes (TestRequestEncoding) ... ok
+test_set_pattern_non_empty (TestRequestEncoding) ... ok
+test_zero_pattern (TestRequestEncoding) ... ok
+test_err_decode_fail (TestResponseDecoding) ... ok
+test_err_unknown_cmd (TestResponseDecoding) ... ok
+test_garbage_raises_value_error (TestResponseDecoding) ... ok
+test_max_response_size_fits_nanopb_limit (TestResponseDecoding) ... ok
+test_ok_response (TestResponseDecoding) ... ok
+test_pattern_preserved (TestResponseDecoding) ... ok
+test_response_roundtrip (TestRoundTrip) ... ok
+test_set_pattern_roundtrip (TestRoundTrip) ... ok
+test_unknown_field_ignored_by_decoder (TestSchemaEvolution) ... ok
+test_ok_name (TestStatusNames) ... ok
+test_unknown_cmd_name (TestStatusNames) ... ok
+test_unknown_code_shows_hex (TestStatusNames) ... ok
+
+----------------------------------------------------------------------
+Ran 24 tests in 0.013s
+
+OK
+```
+
+**The `TestSchemaEvolution` test** is worth understanding in detail, as it demonstrates the core value proposition of protobuf:
+
+```python
+def test_unknown_field_ignored_by_decoder(self):
+    # Build a valid LedCommand for SET_PATTERN 0xA5
+    future_msg  = build_request(CommandType.SET_PATTERN, 0xA5)
+    # Append a future field: field tag 3 (brightness), value 75
+    # Wire format for a varint field: (field_number << 3) | wire_type
+    # Tag byte for field 3, type 0 (varint): (3 << 3) | 0 = 0x18
+    future_msg += bytes([0x18, 75])
+
+    cmd = LedCommand()
+    cmd.ParseFromString(future_msg)
+    # The current decoder ignores the unknown field and still reads correctly
+    self.assertEqual(cmd.command, CommandType.SET_PATTERN)
+    self.assertEqual(cmd.pattern, 0xA5)
+```
+
+This test proves that a newer client sending a `brightness` field (field 3) can talk to the current server unmodified. The server decodes `command` and `pattern` correctly and ignores the unknown field. With the raw 2-byte protocol, this kind of graceful evolution is impossible without a version byte and bespoke logic in every client and server.
+
+---
+
+### Understanding the key Phase 7.5 files
+
+#### `proto/led_command.proto` — the schema
+
+The single source of truth. Both the C stubs and the Python stubs are generated from this file. Edit it here; never edit the generated files directly.
+
+#### `software/led_server/led_server_pb.c` — the C server
+
+The main loop is structurally identical to `led_server.c` (open `/dev/mem`, create socket, `recvfrom` loop) but the packet handling is different:
+
+```c
+/* Decode incoming LedCommand */
+led_LedCommand cmd = led_LedCommand_init_zero;
+pb_istream_t in = pb_istream_from_buffer(rx, (size_t)nbytes);
+
+if (!pb_decode(&in, led_LedCommand_fields, &cmd)) {
+    /* Send ERR_DECODE_FAIL response and continue */
+    send_error_response(sockfd, &client, client_len,
+                        led_StatusCode_ERR_DECODE_FAIL,
+                        led_read(led_base));
+    continue;
+}
+
+/* ... apply cmd.command to hardware ... */
+
+/* Encode LedResponse */
+pb_ostream_t out = pb_ostream_from_buffer(tx, sizeof(tx));
+pb_encode(&out, led_LedResponse_fields, &resp);
+sendto(sockfd, tx, out.bytes_written, 0, ...);
+```
+
+`pb_istream_from_buffer` / `pb_ostream_from_buffer` are lightweight nanopb helpers that work directly on stack-allocated byte arrays — no heap allocation, no dynamic memory, safe for embedded use.
+
+#### `software/led_server/nanopb/` — the bundled C runtime
+
+Seven files copied from the official `nanopb-0.4.9.1` release:
+
+```
+nanopb/
+├── pb.h          ← Core types and macros
+├── pb_common.c   ← Shared utilities
+├── pb_common.h
+├── pb_decode.c   ← pb_decode() and helpers
+├── pb_decode.h
+├── pb_encode.c   ← pb_encode() and helpers
+└── pb_encode.h
+```
+
+These are compiled into `led_server_pb` by `make server-pb-cross`. There is no runtime dependency on a system-installed nanopb library.
+
+#### `software/led_server/led_command.pb.{c,h}` — generated nanopb stubs
+
+The nanopb generator reads `led_command.proto` and produces a C struct for each message and a field descriptor table (`led_LedCommand_fields`) that the nanopb runtime uses to encode and decode instances. The maximum encoded size is computed at compile time:
+
+```c
+#define led_LedCommand_size   8   /* bytes */
+#define led_LedResponse_size  8   /* bytes */
+```
+
+Because both messages have at most two small fields (enum + uint32), the worst-case encoded size is 8 bytes — smaller than most Ethernet MTU headers.
+
+#### `client/send_led_pattern_pb.py` — the Python client
+
+Two key functions wrap the protobuf API:
+
+```python
+def build_request(command, pattern=0) -> bytes:
+    msg = LedCommand()
+    msg.command = command
+    msg.pattern = pattern & 0xFF
+    return msg.SerializeToString()
+
+def parse_response(data: bytes) -> LedResponse:
+    resp = LedResponse()
+    resp.ParseFromString(data)
+    return resp
+```
+
+`SerializeToString()` and `ParseFromString()` are the Python protobuf API equivalents of nanopb's `pb_encode()` / `pb_decode()`.
+
+#### `client/led_command_pb2.py` — generated Python stubs
+
+Generated by `python -m grpc_tools.protoc`. Contains the `LedCommand`, `LedResponse`, `CommandType`, and `StatusCode` classes. Do not edit manually — regenerate with `make proto`.
+
+---
+
+### Troubleshooting (Phase 7.5)
+
+#### `ModuleNotFoundError: No module named 'led_command_pb2'`
+
+The Python stubs are missing or you are running from the wrong directory. Either run from `client/`:
+
+```bash
+cd 11_ethernet_hps_led/client
+python3 send_led_pattern_pb.py ...
+```
+
+Or regenerate the stubs:
+
+```bash
+# 🖥️ Host — from 11_ethernet_hps_led/
+make proto
+```
+
+#### No response / timeout from the protobuf server
+
+1. Verify `led_server_pb` is running: `ssh -6 "root@$BOARD" "ps aux | grep led_server_pb"`
+2. Confirm you are targeting **port 5006**, not 5005: `--port 5006` (default for `send_led_pattern_pb.py`)
+3. Check the board's server log. Because `led_server_pb` was started with `&` (background), its stdout may not be visible. Restart it in the foreground for debugging:
+   ```bash
+   # 📟 Target
+   led_server_pb
+   ```
+
+#### `ERR_DECODE_FAIL` returned instead of `OK`
+
+This happens when the server receives bytes it cannot parse as a valid `LedCommand`. The most common cause is accidentally targeting the wrong port — for example, running the Phase 7 raw client (`send_led_pattern.py`) against port 5006. Ensure you are using `send_led_pattern_pb.py` for the protobuf server.
+
+#### `make server-pb-cross` fails: `arm-linux-gnueabihf-gcc: not found`
+
+The cross-compiler lives inside the Docker image. Ensure Docker is running and the `cvsoc/quartus:23.1` image is available:
+
+```bash
+docker images cvsoc/quartus
+# If not present, build it:
+make -C common/docker
+```
+
+---
+
+## What you have learned
+
+| Concept | Where demonstrated |
+|---|---|
+| UDP sockets for low-latency hardware control | `led_server.c` — `socket()` + `recvfrom()` loop |
+| Dual-stack IPv6/IPv4 socket with `IPV6_V6ONLY=0` | `led_server.c:142–156` |
+| Link-local IPv6 addressing and SLAAC | `ping6 ff02::1` board discovery |
+| Zone IDs for link-local addresses | `%enx08beac224c03` suffix in `--host` argument |
+| `getaddrinfo()` for address-family-agnostic clients | `send_led_pattern.py:114–121` |
+| Packaging a Linux application in Buildroot | `br2-external/package/led-server/` |
+| BusyBox init priority ordering | `S30fpga_load` before `S40led_server` |
+| Dropbear SSH in an embedded Buildroot system | `BR2_PACKAGE_DROPBEAR=y` in defconfig |
+| Atomic binary replacement to avoid `ETXTBSY` | `scp to /tmp` + `mv` workflow |
+| Rapid iteration with `make server-cross` + `scp` | Step 8 — no full Buildroot rebuild needed |
+| Protobuf schema as a single source of truth | `proto/led_command.proto` — generates both C and Python stubs |
+| nanopb for zero-heap protobuf on embedded C | `led_server_pb.c` — `pb_decode()` / `pb_encode()` on stack buffers |
+| Proto3 zero-value wire elision | `GET_PATTERN` request encodes as 1 byte because all fields are default |
+| Field tags and schema evolution | `TestSchemaEvolution` — unknown field 3 (`brightness`) ignored by current decoder |
+| Vendoring a C runtime for reproducible cross-builds | `software/led_server/nanopb/` — bundled from nanopb-0.4.9.1 |
+| Running two protocol versions in parallel | Ports 5005 (raw) and 5006 (protobuf) running simultaneously on the board |
+
+---
+
 ## Next steps
 
-- **Phase 7.5 — Protocol Buffers (nanopb):** Replace the 2-byte raw wire format with a proper protobuf schema (`led_command.proto`). The nanopb generator produces C server stubs and Python client code from a single `.proto` file — demonstrating schema evolution without breaking existing clients.
+- **Phase 7.6 — Web Dashboard:** Add a lightweight HTTP server (e.g. `mongoose` or BusyBox `httpd`) to the Buildroot image alongside `led_server_pb`. A small JavaScript frontend sends `LedCommand` requests to a REST/WebSocket bridge, allowing any browser on the local network to control the LEDs without installing a Python client.
 - **MQTT / CoAP broker:** Add an MQTT broker (e.g. Mosquitto) to the Buildroot image and publish LED state to a topic. Any MQTT client (Home Assistant, Node-RED, phone app) can then subscribe and control the LEDs.
 - **Phase 8 — Zephyr RTOS:** Port the LED server to run on Zephyr RTOS (`west build -b cyclonev_socdk`) instead of Linux, exploring real-time constraints and the Zephyr networking stack.
 - **UIO driver:** Replace the `/dev/mem` approach with a `generic-uio` device tree node and `/dev/uio0`, removing the requirement for root access and the strict `/dev/mem` kernel config workaround.

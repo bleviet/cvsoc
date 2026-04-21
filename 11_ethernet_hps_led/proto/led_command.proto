@@ -1,0 +1,72 @@
+// led_command.proto — Phase 7.5 protobuf wire protocol for LED control.
+//
+// This schema replaces the Phase 7 raw 2-byte UDP protocol with a proper
+// binary serialization format.  The UDP transport and LED hardware logic are
+// unchanged; only the byte-packing layer is replaced by nanopb (C) /
+// google.protobuf (Python).
+//
+// Key advantages over the raw protocol:
+//   - Self-describing: field names are embedded in the schema.
+//   - Evolvable: new optional fields (e.g. brightness, duration_ms) can be
+//     added without breaking clients that do not understand them.
+//   - Multi-language: one .proto generates both the C server stubs (nanopb)
+//     and the Python client classes (protoc --python_out).
+//
+// Regenerate after editing:
+//   make proto          (from 11_ethernet_hps_led/)
+//
+// Generated files (committed for convenience):
+//   software/led_server/led_command.pb.c   (nanopb C decoder/encoder)
+//   software/led_server/led_command.pb.h
+//   client/led_command_pb2.py              (Python classes)
+
+syntax = "proto3";
+
+package led;
+
+// ── Command type ────────────────────────────────────────────────────────────
+
+enum CommandType {
+  // Write the supplied pattern to the FPGA LED PIO register.
+  SET_PATTERN = 0;
+
+  // Read the current FPGA LED PIO register value (pattern field is ignored).
+  GET_PATTERN = 1;
+}
+
+// ── Status codes ─────────────────────────────────────────────────────────────
+
+enum StatusCode {
+  OK               = 0;   // Operation succeeded
+  ERR_UNKNOWN_CMD  = 1;   // command field holds an unrecognised value
+  ERR_DECODE_FAIL  = 2;   // Incoming packet could not be parsed as LedCommand
+  ERR_INVALID_DATA = 3;   // pattern value out of range (reserved for future validation)
+}
+
+// ── Request: PC → board ──────────────────────────────────────────────────────
+
+message LedCommand {
+  // Which operation to perform.
+  CommandType command = 1;
+
+  // LED bitmask (0x00–0xFF).  Each bit corresponds to one of the 8 LEDs.
+  // Ignored for GET_PATTERN commands.
+  uint32 pattern = 2;
+
+  // ── Reserved for Phase 7.6 schema-evolution demo ──────────────────────────
+  // Adding optional fields here does not break existing clients:
+  //   uint32 brightness  = 3;  // 0–100 % PWM duty cycle (future)
+  //   uint32 duration_ms = 4;  // Hold pattern for this many ms, then clear (future)
+}
+
+// ── Response: board → PC ─────────────────────────────────────────────────────
+
+message LedResponse {
+  // Result of the operation.
+  StatusCode status = 1;
+
+  // Current LED bitmask after the operation has been applied.
+  // Equals the written value on SET_PATTERN (confirms the write),
+  // or the register read-back on GET_PATTERN.
+  uint32 pattern = 2;
+}
