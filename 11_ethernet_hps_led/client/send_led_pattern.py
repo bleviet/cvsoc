@@ -72,11 +72,11 @@ def parse_response(data: bytes) -> tuple[int, int]:
     return data[0], data[1]
 
 
-def send_command(sock: socket.socket, host: str, port: int,
+def send_command(sock: socket.socket, dest: tuple,
                  cmd: int, pattern: int = 0x00) -> tuple[int, int]:
     """Send one command and return (status, current_pattern)."""
     req = build_request(cmd, pattern)
-    sock.sendto(req, (host, port))
+    sock.sendto(req, dest)
     data, _ = sock.recvfrom(256)
     return parse_response(data)
 
@@ -110,12 +110,21 @@ Examples:
     if sum(actions) != 1:
         parser.error("Specify exactly one of --pattern, --get, or --animate.")
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Resolve host to determine address family (supports IPv4, IPv6, link-local)
+    try:
+        addr_info = socket.getaddrinfo(args.host, args.port,
+                                       type=socket.SOCK_DGRAM)
+    except socket.gaierror as exc:
+        print(f"Error: cannot resolve '{args.host}': {exc}", file=sys.stderr)
+        return 1
+
+    af, _, _, _, dest_addr = addr_info[0]
+    sock = socket.socket(af, socket.SOCK_DGRAM)
     sock.settimeout(TIMEOUT_S)
 
     try:
         if args.get:
-            status, current = send_command(sock, args.host, args.port, CMD_GET_PATTERN)
+            status, current = send_command(sock, dest_addr, CMD_GET_PATTERN)
             print(f"Current LED pattern: 0x{current:02X} "
                   f"(status: {STATUS_NAMES.get(status, f'0x{status:02X}')})")
             return 0 if status == STATUS_OK else 1
@@ -127,7 +136,7 @@ Examples:
                 print(f"Error: invalid pattern '{args.pattern}' — use hex like 0xA5",
                       file=sys.stderr)
                 return 1
-            status, current = send_command(sock, args.host, args.port,
+            status, current = send_command(sock, dest_addr,
                                            CMD_SET_PATTERN, value)
             print(f"SET 0x{value:02X} → status={STATUS_NAMES.get(status, f'0x{status:02X}')}, "
                   f"LED=0x{current:02X}")
@@ -140,7 +149,7 @@ Examples:
         idx = 0
         while True:
             pattern_val = frames[idx % len(frames)]
-            status, _ = send_command(sock, args.host, args.port,
+            status, _ = send_command(sock, dest_addr,
                                      CMD_SET_PATTERN, pattern_val)
             if status != STATUS_OK:
                 print(f"Error: server returned {STATUS_NAMES.get(status, f'0x{status:02X}')}",
@@ -153,7 +162,7 @@ Examples:
         print("\nStopped.")
         # Turn off LEDs on exit
         try:
-            send_command(sock, args.host, args.port, CMD_SET_PATTERN, 0x00)
+            send_command(sock, dest_addr, CMD_SET_PATTERN, 0x00)
         except Exception:
             pass
         return 0

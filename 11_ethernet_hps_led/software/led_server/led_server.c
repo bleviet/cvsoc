@@ -138,8 +138,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /* ── Create UDP socket ────────────────────────────────────────────────── */
-    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    /* ── Create UDP socket (dual-stack IPv6 + IPv4-mapped) ───────────────── */
+    int sockfd = socket(AF_INET6, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         fprintf(stderr, "Error: socket creation failed: %s\n", strerror(errno));
         munmap((void *)led_base, MAP_SIZE);
@@ -151,10 +151,14 @@ int main(int argc, char *argv[])
     int opt = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    struct sockaddr_in server_addr = {
-        .sin_family      = AF_INET,
-        .sin_port        = htons((uint16_t)port),
-        .sin_addr.s_addr = INADDR_ANY,
+    /* Dual-stack: accept both IPv6 and IPv4-mapped (::ffff:x.x.x.x) */
+    int v6only = 0;
+    setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only));
+
+    struct sockaddr_in6 server_addr = {
+        .sin6_family = AF_INET6,
+        .sin6_port   = htons((uint16_t)port),
+        .sin6_addr   = in6addr_any,
     };
 
     if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
@@ -176,7 +180,7 @@ int main(int argc, char *argv[])
     /* ── Main receive loop ────────────────────────────────────────────────── */
     uint8_t  req[REQUEST_LEN];
     uint8_t  resp[RESPONSE_LEN];
-    struct sockaddr_in client_addr;
+    struct sockaddr_in6 client_addr;
     socklen_t client_len = sizeof(client_addr);
 
     while (running) {
@@ -192,8 +196,8 @@ int main(int argc, char *argv[])
             continue;
         }
 
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+        char client_ip[INET6_ADDRSTRLEN];
+        inet_ntop(AF_INET6, &client_addr.sin6_addr, client_ip, sizeof(client_ip));
 
         if (nbytes != REQUEST_LEN) {
             fprintf(stderr, "Invalid request length %zd from %s (expected %d)\n",
