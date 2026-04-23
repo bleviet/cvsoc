@@ -35,7 +35,12 @@ WEST_OPTS     ?=
 ZEPHYR_SDK_INSTALL_DIR ?= $(HOME)/zephyr-sdk-1.0.1
 export ZEPHYR_SDK_INSTALL_DIR
 
-.PHONY: all init deps build flash debug clean pristine help
+PATCHES_DIR   := $(APP_DIR)/patches
+ZEPHYR_DIR    := $(WORKSPACE_DIR)/zephyr
+# Sentinel file — recreated whenever patches are (re)applied
+PATCH_STAMP   := $(BUILD_DIR)/.patches_applied
+
+.PHONY: all init deps build patch flash debug clean pristine help
 
 all: build
 
@@ -50,6 +55,7 @@ $(WORKSPACE_DIR)/.west/config:
 	@echo "══════════════════════════════════════════════════════════════"
 	$(WEST) init -l $(APP_DIR)
 	$(WEST) update
+	@$(MAKE) --no-print-directory patch
 	@echo ""
 	@echo "Workspace ready. Run 'make deps', then 'make build'."
 
@@ -75,12 +81,27 @@ build: $(WORKSPACE_DIR)/.west/config
 	@echo "  Debug:          make debug"
 	@echo "═══════════════════════════════════════════════════════════════"
 
+# ── Patch upstream Zephyr ────────────────────────────────────────────────────
+# Apply local patches to the west-managed zephyr/ checkout.
+# Patches live in app/patches/ and are tracked in bleviet/cvsoc.
+# The stamp file ensures patches are only applied once per build/ lifetime;
+# run 'make patch' explicitly after 'make pristine' or 'west update'.
+patch: $(PATCH_STAMP)
+
+$(PATCH_STAMP): $(wildcard $(PATCHES_DIR)/*.patch) | $(WORKSPACE_DIR)/.west/config
+	@echo "Applying local patches to zephyr/ ..."
+	@cd $(ZEPHYR_DIR) && git apply --check $(PATCHES_DIR)/*.patch 2>/dev/null \
+	    && git apply $(PATCHES_DIR)/*.patch \
+	    || echo "  (patches already applied or not applicable — skipping)"
+	@mkdir -p $(BUILD_DIR)
+	@touch $(PATCH_STAMP)
+
 # ── Flash ────────────────────────────────────────────────────────────────────
 # Requires:
 #   - DE10-Nano powered on and connected via USB-Blaster II
 #   - USB-Blaster II forwarded to WSL2 (usbipd)
 #   - Preloader (u-boot-spl) in zephyr board support dir (see doc/README.md)
-flash: $(BUILD_DIR)/zephyr/zephyr.elf
+flash: $(PATCH_STAMP) $(BUILD_DIR)/zephyr/zephyr.elf
 	$(WEST) flash --build-dir $(BUILD_DIR)
 
 # ── Debug ─────────────────────────────────────────────────────────────────────
@@ -110,7 +131,7 @@ help:
 	@echo "  build     — Build for cyclonev_socdk board"
 	@echo "  flash     — Flash via USB-Blaster II (board must be connected)"
 	@echo "  debug     — OpenOCD + GDB debug session"
-	@echo "  rebuild   — Incremental rebuild (no west update)"
+	@echo "  patch     — (Re)apply local patches to zephyr/ checkout"
 	@echo "  clean     — Remove build/ directory"
 	@echo "  pristine  — Remove build/ and zephyrproject/ (full reset)"
 	@echo "  help      — Show this message"

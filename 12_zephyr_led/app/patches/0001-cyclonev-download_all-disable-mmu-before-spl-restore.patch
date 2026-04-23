@@ -1,0 +1,37 @@
+From: bleviet <bleviet@users.noreply.github.com>
+Subject: [PATCH] boards: cyclonev_socdk: disable MMU before restoring SPL to OCRAM
+
+When the board is running Linux or U-Boot, the ARM MMU is active and
+OCRAM (0xffff0000) is either write-protected or unmapped in the page
+tables.  Attempting to restore the SPL binary there via GDB causes data
+aborts (DFSR 0x083f = permission fault, 0x0837 = translation fault).
+
+Fix: halt the CPU first, then write the Cortex-A9 reset value to SCTLR
+(CP15 c1,c0,0) to disable the MMU, D-cache and I-cache before the
+restore begins.  Also raise remotetimeout to suppress GDB keep-alive
+warnings that occurred during the slow abort-retry cycles.
+
+Signed-off-by: bleviet <bleviet@users.noreply.github.com>
+---
+ .../cyclonev_socdk/support/download_all.gdb   | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/boards/intel/socfpga_std/cyclonev_socdk/support/download_all.gdb b/boards/intel/socfpga_std/cyclonev_socdk/support/download_all.gdb
+index 97700438910..88239a20eea 100644
+--- a/boards/intel/socfpga_std/cyclonev_socdk/support/download_all.gdb
++++ b/boards/intel/socfpga_std/cyclonev_socdk/support/download_all.gdb
+@@ -5,6 +5,14 @@
+ 
+ set confirm off
+ set pagination off
++set remotetimeout 60
++
++# If Linux/U-Boot is running, the MMU is active and OCRAM (0xffff0000) is
++# write-protected, causing data aborts during the SPL restore.
++# Halt the CPU, then disable the MMU and D/I-caches via SCTLR (CP15 c1,c0,0)
++# so raw physical writes to OCRAM succeed.
++monitor halt
++monitor arm mcr 15 0 1 0 0 0x00C50078
+ 
+ #Download and Run preloader
+ source boards/intel/socfpga_std/cyclonev_socdk/support/preloader_dl_cmd.txt
