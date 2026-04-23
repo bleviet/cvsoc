@@ -30,8 +30,15 @@ initialisation → Devicetree overlay → Kconfig → application code → build
 Previous phases ran code either as bare-metal (Phases 3–7) or as a Linux
 userspace process (Phases 6–7). Zephyr sits in between: it gives you a real
 pre-emptive scheduler, semaphores, mutexes, and a hardware abstraction layer,
-without needing a full OS kernel. The resulting binary is ~49 KB — versus
-many megabytes for a Linux userspace stack.
+without needing a full OS kernel.
+
+### Single Monolithic Binary vs. Separated System
+
+Unlike a General-Purpose Operating System (GPOS) like Linux, which requires a bootloader, a separate kernel, a device tree, and a complete root filesystem packaged into a partitioned SD card image, Zephyr is an RTOS designed for embedded systems.
+
+In Zephyr, your application code, the device drivers, and the RTOS kernel itself are all statically compiled and linked together into a **single, self-contained executable file (`.elf`)**. The resulting binary is ~49 KB — versus many megabytes for a Linux userspace stack.
+
+Because Zephyr is just one small, self-contained program, you don't need the complexity of an SD card to run it. Instead of an SD card booting a filesystem, this tutorial uses your USB-Blaster (JTAG) cable to copy the `zephyr.elf` file directly from your computer into the board's RAM and execute it, similar to the bare-metal programs written in earlier phases.
 
 ### Zephyr on Cyclone V SoC
 
@@ -352,11 +359,15 @@ build/zephyr/zephyr.bin   ← raw binary (~49 KB)
    ```
 
 2. **Preloader:** Zephyr's `west flash` loads the SPL (Secondary Program Loader)
-   first, then the Zephyr ELF. Download the preloader from the GSRD:
+   first, then the Zephyr ELF. 
+
+   **Why do we need the SPL?** 
+   Unlike the bare-metal applications in earlier phases which ran entirely within the 64 KB On-Chip RAM (OCRAM), Zephyr is too large and must run from the board's 1 GB DDR3 memory. However, DDR memory cannot be used until its controller is initialized with the exact timing parameters of the physical RAM chips. The SPL is a tiny, bare-metal program that fits into OCRAM. OpenOCD loads the SPL first, lets it run just long enough to initialize the DDR memory controller and the CPU clocks, and then halts it. Once the DDR is ready, OpenOCD can safely copy the large `zephyr.elf` into DDR memory and run it.
+
+   Since you have completed Phase 6, you already built the preloader (U-Boot SPL)
+   from source using Buildroot! Copy it from your `10_linux_led` project:
    ```bash
-   wget https://releases.rocketboards.org/release/2018.05/gsrd/hw/cv_soc_devkit_ghrd.tar.gz
-   tar xvf cv_soc_devkit_ghrd.tar.gz
-   cp cv_soc_devkit_ghrd/software/preloader/uboot-socfpga/spl/u-boot-spl \
+   cp ../10_linux_led/buildroot-2024.11.1/output/build/uboot-2024.07/spl/u-boot-spl \
        zephyr/boards/intel/socfpga_std/cyclonev_socdk/support/
    ```
 
