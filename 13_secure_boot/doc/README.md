@@ -98,6 +98,35 @@ This runs `mkimage` inside a Docker container (downloading necessary tools autom
 
 The output is `signed_firmware.itb`.
 
+### Testing on Hardware
+
+Even though we haven't strictly enforced `CONFIG_FIT_SIGNATURE=y` in our Phase 6 Buildroot image, the standard U-Boot already has FIT image support (`CONFIG_FIT=y`). You can test booting your signed `.itb` image manually!
+
+1.  **Copy the ITB to the SD Card:**
+    *   If your DE10-Nano is running Linux and connected to the network, use `scp`:
+        ```bash
+        scp signed_firmware.itb root@192.168.1.100:/boot/
+        ```
+    *   Alternatively, plug the SD card into your PC and copy `signed_firmware.itb` to the small FAT32 `boot` partition.
+
+2.  **Connect to the Serial Console:**
+    *   Connect the USB cable to the UART port and open a terminal (e.g., `picocom -b 115200 /dev/ttyUSB0` or PuTTY on Windows).
+
+3.  **Interrupt U-Boot:**
+    *   Press the reset button on the DE10-Nano.
+    *   When you see `Hit any key to stop autoboot:`, press `Space` or `Enter` immediately to drop into the U-Boot prompt (`=>`).
+
+4.  **Boot the FIT Image:**
+    *   Load the image from the FAT partition into RAM:
+        ```u-boot
+        => fatload mmc 0:1 $loadaddr signed_firmware.itb
+        ```
+    *   Boot the image using `bootm` (Boot Memory). It will automatically unpack the kernel, device tree, and FPGA bitstream based on your `fit_image.its` configurations!
+        ```u-boot
+        => bootm $loadaddr
+        ```
+    *   You should see U-Boot verify the SHA256 hashes of the kernel, FDT, and FPGA components before uncompressing them and handing control over to Linux.
+
 ### How it works in a real product:
 1.  You generate an RSA private/public key pair (which we just did).
 2.  You use the `mkimage` tool (part of U-Boot) to build the FIT image and sign it with your private key (which we just did).
