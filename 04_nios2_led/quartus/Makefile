@@ -28,10 +28,10 @@ DEVICE_INDEX ?= 2
 
 REPO_ROOT  = $(realpath ../..)
 UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
-DOCKER     = docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
+DOCKER     = docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
 DOCKER_CWD = cd /work/$(PROJECT_NAME)/quartus
 # GUI helper: adds X11/WSLg display forwarding for Quartus GUI targets.
-DOCKER_GUI = docker run --rm \
+DOCKER_GUI = docker run --rm --user $$(id -u):$$(id -g) \
   -e DISPLAY=$$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v /mnt/wslg:/mnt/wslg \
@@ -45,7 +45,7 @@ DOCKER_GUI = docker run --rm \
         quartus-gui platform-designer
 
 all:
-	docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
+	docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
 	  cd /work/$(PROJECT_NAME)/qsys && qsys-script --script=nios2_system.tcl && \
 	  cd /work/$(PROJECT_NAME)/quartus && \
 	  qsys-generate ../qsys/nios2_system.qsys --synthesis=VHDL --output-directory=../qsys/nios2_system_gen && \
@@ -116,7 +116,7 @@ usb-windows:
 #   Starts jtagd inside the container then calls quartus_pgm.
 #   The USB-Blaster must be connected to WSL2 first (handled by usb-wsl).
 program-sof: usb-wsl $(REVISION_NAME).sof
-	docker run --rm --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v /dev/bus/usb:/dev/bus/usb \
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
@@ -127,7 +127,7 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 # download-elf: Downloads the Nios II ELF to the soft-core via JTAG and starts it.
 #   The uname_shim prevents nios2-download from detecting WSL inside Docker.
 download-elf: usb-wsl $(APP_DIR)/nios2_led.elf
-	docker run --rm --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  $(DOCKER_IMAGE) \
@@ -135,7 +135,7 @@ download-elf: usb-wsl $(APP_DIR)/nios2_led.elf
 
 # terminal: Opens the Nios II JTAG UART terminal (Ctrl-C to quit).
 terminal: usb-wsl
-	docker run --rm -it --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) -it --privileged \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  $(DOCKER_IMAGE) \
 	  nios2-terminal

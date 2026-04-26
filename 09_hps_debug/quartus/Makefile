@@ -26,10 +26,10 @@ DEVICE_INDEX ?= 2
 
 REPO_ROOT    = $(realpath ../..)
 UNAME_SHIM   = $(REPO_ROOT)/common/docker/uname_shim.sh
-DOCKER       = docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
+DOCKER       = docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
 DOCKER_CWD   = cd /work/$(PROJECT_NAME)/quartus
 # GUI helper: adds X11/WSLg display forwarding for Quartus GUI targets.
-DOCKER_GUI   = docker run --rm \
+DOCKER_GUI   = docker run --rm --user $$(id -u):$$(id -g) \
   -e DISPLAY=$$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v /mnt/wslg:/mnt/wslg \
@@ -51,19 +51,16 @@ GDB_PORT     ?= 3333
         quartus-gui platform-designer
 
 all:
-	docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
-	  cd /work/$(PROJECT_NAME)/qsys && qsys-script --script=hps_system.tcl && \
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "  Phase 5 reuses Phase 4 (07_hps_interrupts) hardware"
+	@echo "═══════════════════════════════════════════════════════════════"
+	$(MAKE) -C $(REPO_ROOT)/07_hps_interrupts/quartus all
+	@echo "Copying bitstream from 07_hps_interrupts..."
+	docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
+	  mkdir -p /work/$(PROJECT_NAME)/software/app && \
+	  rm -f /work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof && \
+	  cp /work/07_hps_interrupts/quartus/de10_nano.sof /work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof && \
 	  cd /work/$(PROJECT_NAME)/quartus && \
-	  qsys-generate ../qsys/hps_system.qsys --synthesis=VERILOG && \
-	  python3 ../scripts/patch_oct.py \
-	    ../qsys/hps_system/synthesis/submodules/altdq_dqs2_acv_connect_to_hard_phy_cyclonev.sv && \
-	  quartus_sh -t de10_nano_project.tcl && \
-	  quartus_map --read_settings_files=on --write_settings_files=off $(PROJECT_NAME) -c $(REVISION_NAME) && \
-	  quartus_sta -t ../qsys/hps_system/synthesis/submodules/hps_sdram_p0_pin_assignments.tcl $(REVISION_NAME) && \
-	  quartus_map --read_settings_files=on --write_settings_files=off $(PROJECT_NAME) -c $(REVISION_NAME) && \
-	  quartus_fit --read_settings_files=on --write_settings_files=off $(PROJECT_NAME) -c $(REVISION_NAME) && \
-	  quartus_asm --read_settings_files=on --write_settings_files=off $(PROJECT_NAME) -c $(REVISION_NAME) && \
-	  quartus_sta $(PROJECT_NAME) -c $(REVISION_NAME) && \
 	  make -C ../software/app CC=arm-linux-gnueabihf-gcc'
 
 # ── Step 0: ARM cross-compiler (pre-installed in cvsoc/quartus:23.1) ─────
@@ -137,7 +134,7 @@ usb-windows:
 # program-sof: Programs the FPGA bitstream via JTAG entirely from WSL2.
 #   Starts jtagd inside the container then calls quartus_pgm.
 program-sof: usb-wsl $(REVISION_NAME).sof
-	docker run --rm --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v /dev/bus/usb:/dev/bus/usb \
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
@@ -149,7 +146,7 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 OPENOCD_CFG  = ../scripts/de10_nano_hps.cfg
 
 download-elf: usb-wsl $(APP_DIR)/hps_debug.elf
-	docker run --rm --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  -v $(realpath $(OPENOCD_CFG)):/tmp/de10_nano_hps.cfg:ro \
@@ -179,7 +176,7 @@ deploy-elf: $(APP_DIR)/hps_debug.elf
 # NOTE: Exposes port $(GDB_PORT) from the Docker container to localhost so
 #       the second 'make gdb' container can connect via --network host.
 openocd: usb-wsl
-	docker run --rm -it --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) -it --privileged \
 	  -p $(GDB_PORT):$(GDB_PORT) \
 	  -p 4444:4444 \
 	  -v $(REPO_ROOT):/work \
@@ -203,7 +200,7 @@ openocd: usb-wsl
 #   Terminal 1: make openocd
 #   Terminal 2: make gdb
 gdb: $(APP_DIR)/hps_debug.elf
-	docker run --rm -it \
+	docker run --rm --user $$(id -u):$$(id -g) -it \
 	  --network host \
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \

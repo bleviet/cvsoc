@@ -86,16 +86,16 @@ help:
 # the Phase 6 output.
 rbf: $(RBF_FILE)
 
-$(RBF_FILE):
-	@if [ -f "$(PHASE6_RBF)" ]; then \
-	    echo "Copying FPGA bitstream from Phase 6..."; \
-	    cp "$(PHASE6_RBF)" "$@"; \
-	    echo "FPGA bitstream: $@"; \
-	else \
-	    echo "ERROR: $(PHASE6_RBF) not found."; \
-	    echo "Build Phase 6 first: cd ../10_linux_led && make rbf"; \
-	    exit 1; \
-	fi
+$(PHASE6_RBF):
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "  Building missing dependency: 10_linux_led .rbf bitstream"
+	@echo "═══════════════════════════════════════════════════════════════"
+	$(MAKE) -C $(REPO_ROOT)/10_linux_led rbf
+
+$(RBF_FILE): $(PHASE6_RBF)
+	@echo "Copying FPGA bitstream from Phase 6..."
+	@cp "$(PHASE6_RBF)" "$@"
+	@echo "FPGA bitstream: $@"
 
 # ── Buildroot download ────────────────────────────────────────────────────────
 buildroot-download: $(BUILDROOT_DIR)/Makefile
@@ -137,7 +137,7 @@ sdcard: buildroot
 # ── Standalone cross-compile (Phase 7: raw protocol) ─────────────────────────
 # Useful for quick iterations: recompile and scp to the running board.
 server-cross:
-	docker run --rm \
+	docker run --rm --user $$(id -u):$$(id -g) \
 	    -v $(REPO_ROOT):/work \
 	    $(DOCKER_IMAGE) \
 	    arm-linux-gnueabihf-gcc -O2 -Wall -Wextra \
@@ -151,7 +151,7 @@ server-cross:
 # software/led_server/nanopb/ (copied from nanopb-0.4.9.1).
 # Uses Docker (same cross-compiler as server-cross).
 server-pb-cross:
-	docker run --rm \
+	docker run --rm --user $$(id -u):$$(id -g) \
 	    -v $(REPO_ROOT):/work \
 	    $(DOCKER_IMAGE) \
 	    arm-linux-gnueabihf-gcc -O2 -Wall -Wextra \

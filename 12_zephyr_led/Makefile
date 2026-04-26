@@ -21,6 +21,8 @@
 # The application source lives in app/ (the west 'self' project per west.yml).
 
 PROJECT_DIR   := $(CURDIR)
+REPO_ROOT     := $(realpath ..)
+PHASE6_SPL    := $(REPO_ROOT)/10_linux_led/buildroot-2024.11.1/output/build/uboot-2024.07/spl/u-boot-spl
 # west places .west/ at the project root (12_zephyr_led/).
 # zephyr/ is a sibling of app/ inside this directory.
 WORKSPACE_DIR := $(PROJECT_DIR)
@@ -37,6 +39,7 @@ export ZEPHYR_SDK_INSTALL_DIR
 
 PATCHES_DIR   := $(APP_DIR)/patches
 ZEPHYR_DIR    := $(WORKSPACE_DIR)/zephyr
+ZEPHYR_SPL    := $(ZEPHYR_DIR)/boards/intel/socfpga_std/cyclonev_socdk/support/u-boot-spl
 # Sentinel file — recreated whenever patches are (re)applied
 PATCH_STAMP   := $(BUILD_DIR)/.patches_applied
 
@@ -101,11 +104,24 @@ $(PATCH_STAMP): $(wildcard $(PATCHES_DIR)/*.patch) | $(WORKSPACE_DIR)/.west/conf
 #   - DE10-Nano powered on and connected via USB-Blaster II
 #   - USB-Blaster II forwarded to WSL2 (usbipd)
 #   - Preloader (u-boot-spl) in zephyr board support dir (see doc/README.md)
-flash: $(PATCH_STAMP) $(BUILD_DIR)/zephyr/zephyr.elf
+
+$(PHASE6_SPL):
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "  Building missing dependency: 10_linux_led U-Boot SPL"
+	@echo "  (This might take ~30 minutes on first run!)"
+	@echo "═══════════════════════════════════════════════════════════════"
+	$(MAKE) -C $(REPO_ROOT)/10_linux_led buildroot
+
+$(ZEPHYR_SPL): $(PHASE6_SPL) | $(WORKSPACE_DIR)/.west/config
+	@echo "Copying U-Boot SPL from Phase 6..."
+	@mkdir -p $$(dirname "$@")
+	@cp "$<" "$@"
+
+flash: $(PATCH_STAMP) $(BUILD_DIR)/zephyr/zephyr.elf $(ZEPHYR_SPL)
 	$(WEST) flash --build-dir $(BUILD_DIR)
 
 # ── Debug ─────────────────────────────────────────────────────────────────────
-debug: $(BUILD_DIR)/zephyr/zephyr.elf
+debug: $(BUILD_DIR)/zephyr/zephyr.elf $(ZEPHYR_SPL)
 	$(WEST) debug --build-dir $(BUILD_DIR)
 
 # ── Rebuild only (no west update) ─────────────────────────────────────────────

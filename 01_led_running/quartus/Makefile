@@ -24,10 +24,10 @@ DEVICE_INDEX ?= 2
 
 REPO_ROOT  = $(realpath ../..)
 # Docker run helper: mounts repo at /work, sets working dir to this project.
-DOCKER     = docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
+DOCKER     = docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
 DOCKER_CWD = cd /work/$(PROJECT_NAME)/quartus
 # GUI helper: adds X11/WSLg display forwarding for Quartus GUI targets.
-DOCKER_GUI = docker run --rm \
+DOCKER_GUI = docker run --rm --user $$(id -u):$$(id -g) \
   -e DISPLAY=$$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v /mnt/wslg:/mnt/wslg \
@@ -41,7 +41,7 @@ DOCKER_GUI = docker run --rm \
 
 # all: runs project → compile → check_timing in a single container.
 all:
-	docker run --rm \
+	docker run --rm --user $$(id -u):$$(id -g) \
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
 	  bash -c "$(DOCKER_CWD) && \
@@ -91,7 +91,7 @@ usb-windows:
 #   Starts jtagd inside the container then calls quartus_pgm.
 #   The USB-Blaster must be connected to WSL2 first (handled by usb-wsl).
 program-sof: usb-wsl $(REVISION_NAME).sof
-	docker run --rm --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v /dev/bus/usb:/dev/bus/usb \
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \

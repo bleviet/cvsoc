@@ -28,10 +28,10 @@ DEVICE_INDEX ?= 2
 
 REPO_ROOT    = $(realpath ../..)
 UNAME_SHIM   = $(REPO_ROOT)/common/docker/uname_shim.sh
-DOCKER       = docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
+DOCKER       = docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
 DOCKER_CWD   = cd /work/$(PROJECT_NAME)/quartus
 # GUI helper: adds X11/WSLg display forwarding for Quartus GUI targets.
-DOCKER_GUI   = docker run --rm \
+DOCKER_GUI   = docker run --rm --user $$(id -u):$$(id -g) \
   -e DISPLAY=$$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v /mnt/wslg:/mnt/wslg \
@@ -51,7 +51,7 @@ HPS_USER     ?= root
         quartus-gui platform-designer
 
 all:
-	docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
+	docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
 	  cd /work/$(PROJECT_NAME)/qsys && qsys-script --script=hps_system.tcl && \
 	  cd /work/$(PROJECT_NAME)/quartus && \
 	  qsys-generate ../qsys/hps_system.qsys --synthesis=VERILOG && \
@@ -146,7 +146,7 @@ usb-windows:
 #   Starts jtagd inside the container then calls quartus_pgm.
 #   The USB-Blaster must be connected to WSL2 first (handled by usb-wsl).
 program-sof: usb-wsl $(REVISION_NAME).sof
-	docker run --rm --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v /dev/bus/usb:/dev/bus/usb \
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
@@ -159,7 +159,7 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 OPENOCD_CFG  = ../scripts/de10_nano_hps.cfg
 
 download-elf: usb-wsl $(APP_DIR)/hps_led.elf
-	docker run --rm --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  -v $(realpath $(OPENOCD_CFG)):/tmp/de10_nano_hps.cfg:ro \

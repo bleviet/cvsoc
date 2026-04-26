@@ -25,10 +25,10 @@ DEVICE_INDEX ?= 2
 
 REPO_ROOT  = $(realpath ../..)
 UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
-DOCKER     = docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
+DOCKER     = docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
 DOCKER_CWD = cd /work/$(PROJECT_NAME)/quartus
 # GUI helper: adds X11/WSLg display forwarding for Quartus GUI targets.
-DOCKER_GUI = docker run --rm \
+DOCKER_GUI = docker run --rm --user $$(id -u):$$(id -g) \
   -e DISPLAY=$$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v /mnt/wslg:/mnt/wslg \
@@ -42,7 +42,7 @@ DOCKER_GUI = docker run --rm \
         quartus-gui platform-designer
 
 all:
-	docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
+	docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
 	  cd /work/$(PROJECT_NAME)/qsys && qsys-script --script=nios2_system.tcl && \
 	  cd /work/$(PROJECT_NAME)/quartus && \
 	  qsys-generate ../qsys/nios2_system.qsys --synthesis=VHDL --output-directory=../qsys/nios2_system_gen && \
@@ -109,7 +109,7 @@ usb-windows:
 # program-sof: Programs the FPGA bitstream via JTAG entirely from WSL2.
 #   Starts jtagd inside the container then calls quartus_pgm.
 program-sof: usb-wsl $(REVISION_NAME).sof
-	docker run --rm --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v /dev/bus/usb:/dev/bus/usb \
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
@@ -118,14 +118,14 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 	    kill $$(pgrep jtagd) 2>/dev/null || true'
 
 download-elf: usb-wsl $(APP_DIR)/nios2_interrupts.elf
-	docker run --rm --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  $(DOCKER_IMAGE) \
 	  nios2-download -g /work/06_nios2_interrupts/software/app/nios2_interrupts.elf
 
 terminal: usb-wsl
-	docker run --rm -it --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) -it --privileged \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  $(DOCKER_IMAGE) \
 	  nios2-terminal

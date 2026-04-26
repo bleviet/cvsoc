@@ -60,8 +60,14 @@ help:
 # into a Raw Binary File suitable for Linux FPGA Manager.
 rbf: $(RBF_FILE)
 
+$(SOF_FILE):
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "  Building missing dependency: 05_hps_led FPGA bitstream (.sof)"
+	@echo "═══════════════════════════════════════════════════════════════"
+	$(MAKE) -C $(REPO_ROOT)/05_hps_led/quartus all
+
 $(RBF_FILE): $(SOF_FILE) scripts/convert_sof_to_rbf.sh
-	docker run --rm \
+	docker run --rm --user $$(id -u):$$(id -g) \
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
 	  bash -c "cd /work/10_linux_led && bash scripts/convert_sof_to_rbf.sh \

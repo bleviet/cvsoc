@@ -26,10 +26,10 @@ DEVICE_INDEX ?= 2
 
 REPO_ROOT  = $(realpath ../..)
 UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
-DOCKER     = docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
+DOCKER     = docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
 DOCKER_CWD = cd /work/$(PROJECT_NAME)/quartus
 # GUI helper: adds X11/WSLg display forwarding for Quartus GUI targets.
-DOCKER_GUI = docker run --rm \
+DOCKER_GUI = docker run --rm --user $$(id -u):$$(id -g) \
   -e DISPLAY=$$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v /mnt/wslg:/mnt/wslg \
@@ -48,17 +48,18 @@ GDB_PORT     ?= 2345
         quartus-gui platform-designer
 
 all:
-	docker run --rm -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
-	  cd /work/$(PROJECT_NAME)/qsys && qsys-script --script=nios2_system.tcl && \
+	@echo "═══════════════════════════════════════════════════════════════"
+	@echo "  Phase 5 reuses Phase 4 (06_nios2_interrupts) hardware + BSP"
+	@echo "═══════════════════════════════════════════════════════════════"
+	$(MAKE) -C $(REPO_ROOT)/06_nios2_interrupts/quartus all
+	@echo "Copying bitstream and BSP from 06_nios2_interrupts..."
+	docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
+	  mkdir -p /work/$(PROJECT_NAME)/software/bsp /work/$(PROJECT_NAME)/software/app && \
+	  rm -f /work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof && \
+	  cp /work/06_nios2_interrupts/quartus/de10_nano.sof /work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof && \
+	  rm -rf /work/$(PROJECT_NAME)/software/bsp/* && \
+	  cp -r /work/06_nios2_interrupts/software/bsp/* /work/$(PROJECT_NAME)/software/bsp/ && \
 	  cd /work/$(PROJECT_NAME)/quartus && \
-	  qsys-generate ../qsys/nios2_system.qsys --synthesis=VHDL --output-directory=../qsys/nios2_system_gen && \
-	  quartus_sh -t de10_nano_project.tcl && \
-	  quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME) && \
-	  mkdir -p ../software/bsp && \
-	  nios2-bsp-create-settings --sopc ../qsys/nios2_system.sopcinfo --type hal \
-	    --settings ../software/bsp/settings.bsp --bsp-dir ../software/bsp \
-	    --script /opt/intelFPGA/nios2eds/sdk2/bin/bsp-set-defaults.tcl --cpu-name nios2 && \
-	  make -C ../software/bsp WINDOWS_EXE= && \
 	  make -C ../software/app'
 
 # ── Step 1: generate the .qsys file from the TCL script ──────────────────────
@@ -116,7 +117,7 @@ usb-windows:
 # program-sof: Programs the FPGA bitstream via JTAG entirely from WSL2.
 #   Starts jtagd inside the container then calls quartus_pgm.
 program-sof: usb-wsl $(REVISION_NAME).sof
-	docker run --rm --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v /dev/bus/usb:/dev/bus/usb \
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
@@ -126,7 +127,7 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 
 # ── Download ELF (run without debugger) ──────────────────────────────────────
 download-elf: usb-wsl $(APP_DIR)/nios2_debug.elf
-	docker run --rm --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  $(DOCKER_IMAGE) \
@@ -134,7 +135,7 @@ download-elf: usb-wsl $(APP_DIR)/nios2_debug.elf
 
 # ── JTAG UART terminal ────────────────────────────────────────────────────────
 terminal: usb-wsl
-	docker run --rm -it --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) -it --privileged \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  $(DOCKER_IMAGE) \
 	  nios2-terminal
@@ -148,7 +149,7 @@ terminal: usb-wsl
 # NOTE: nios2-gdb-server requires jtagd to be running inside the container.
 #       The shim disables WSL detection inside Docker on WSL2 hosts.
 gdb-server: usb-wsl
-	docker run --rm -it --privileged \
+	docker run --rm --user $$(id -u):$$(id -g) -it --privileged \
 	  -p $(GDB_PORT):$(GDB_PORT) \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
@@ -169,7 +170,7 @@ gdb-server: usb-wsl
 #   Terminal 1: make gdb-server
 #   Terminal 2: make gdb
 gdb: $(APP_DIR)/nios2_debug.elf
-	docker run --rm -it \
+	docker run --rm --user $$(id -u):$$(id -g) -it \
 	  --network host \
 	  -v $(REPO_ROOT):/work \
 	  $(DOCKER_IMAGE) \
