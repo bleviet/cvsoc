@@ -1,3 +1,5 @@
 aes_key.key
 *.rbf
 *.ekp
+keys/
+*.itb

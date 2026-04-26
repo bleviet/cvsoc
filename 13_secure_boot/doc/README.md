@@ -70,16 +70,42 @@ If you compare the unencrypted `.rbf` from Phase 6 (`10_linux_led/de10_nano.rbf`
 
 To implement Secure Boot on the ARM processor (HPS) side without permanent hardware changes, the standard approach involves **U-Boot FIT (Flattened Image Tree) images**.
 
-A FIT image wraps the Linux Kernel, Device Tree, and FPGA Bitstream into a single file and appends an RSA digital signature.
+A FIT image wraps the Linux Kernel, Device Tree, and FPGA Bitstream into a single file (`.itb`) and appends an RSA digital signature. This allows U-Boot to verify the integrity and authenticity of everything it loads.
+
+### Hands-on: Signing a FIT Image
+
+We have provided tools to generate an RSA key pair and sign a firmware image. This process packs the kernel, device tree, and bitstream generated in Phase 6 (`10_linux_led`) into a single signed blob.
+
+#### Step 1: Generate an RSA Key Pair
+
+Run the following command to generate a 2048-bit RSA private and public key pair:
+
+```bash
+make rsa_keys
+```
+
+This generates `keys/dev_key.key` (the private key used to sign) and `keys/dev_key.pub` (the public key that would normally be compiled into U-Boot).
+
+#### Step 2: Build and Sign the FIT Image
+
+Run the following command to pack and sign the firmware:
+
+```bash
+make sign_fit
+```
+
+This runs `mkimage` inside a Docker container (downloading necessary tools automatically). It takes the instructions from `fit_image.its` to bundle the Linux kernel (`zImage`), Device Tree (`socfpga_cyclone5_de0_nano_soc.dtb`), and FPGA bitstream (`de10_nano.rbf`), and then signs the entire bundle using your RSA private key. 
+
+The output is `signed_firmware.itb`.
 
 ### How it works in a real product:
-1.  You generate an RSA private/public key pair.
-2.  You use the `mkimage` tool (part of U-Boot) to build the FIT image and sign it with your private key.
-3.  You embed the RSA public key directly into the U-Boot device tree (`u-boot.dtb`).
+1.  You generate an RSA private/public key pair (which we just did).
+2.  You use the `mkimage` tool (part of U-Boot) to build the FIT image and sign it with your private key (which we just did).
+3.  **Next Step (Not covered in this tutorial):** You embed the RSA public key directly into the U-Boot device tree (`u-boot.dtb`).
 4.  You configure U-Boot to `CONFIG_FIT_SIGNATURE=y` and `CONFIG_RSA=y`.
 5.  When U-Boot attempts to `bootm` the FIT image, it halts if the signature does not perfectly match the public key.
 
-> *Note: Implementing full U-Boot FIT signatures requires rebuilding the Phase 6 Buildroot image with custom U-Boot configuration flags. This folder focuses on providing the foundational scripts for bitstream encryption.*
+> *Note: Implementing full U-Boot FIT verification requires rebuilding the Phase 6 Buildroot image with custom U-Boot configuration flags. This folder focuses on providing the foundational scripts and understanding of the signing process.*
 
 ---
 
