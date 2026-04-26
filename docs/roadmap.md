@@ -428,6 +428,28 @@ A dependency-free single-page application (no npm, no Node.js, no framework — 
 
 ---
 
+## Phase 9 — Cybersecurity (Educational Secure Boot)
+
+**Goal:** Understand the principles of securing embedded systems through image signing and encryption. This phase is strictly for educational purposes and is designed to ensure no damage or permanent lockdown occurs to the DE10-Nano development board (e.g., we will not permanently fuse OTP keys).
+
+### 9.1 Concepts of Secure Boot
+- Cryptographic fundamentals: symmetric vs. asymmetric encryption, hashing, and digital signatures.
+- The Chain of Trust: from the BootROM to the preloader (SPL) and U-Boot.
+
+### 9.2 Signing and Encrypting the FPGA Bitstream
+- Generating development keys for signing and encryption.
+- Modifying the Quartus build flow to encrypt the `.sof` into a secured `.rbf`.
+- Authenticating the bitstream during the Linux boot process.
+
+### 9.3 Soft-Implementation of Secure Boot
+- Authenticating the U-Boot SPL and U-Boot without blowing the physical eFuses (OTP).
+- Storing keys in volatile RAM or using "zero-key" development modes for safe experimentation.
+
+### 9.4 Documentation
+- `13_secure_boot/doc/README.md`: Cybersecurity principles, key generation workflows, and warnings on preventing dev board lockdown.
+
+---
+
 ## Cross-Cutting Track: Quality & Tooling (Ongoing)
 
 These improvements are not tied to a single phase and should progress in parallel.
@@ -468,7 +490,8 @@ These improvements are not tied to a single phase and should progress in paralle
 | `10`      | Embedded Linux |
 | `11`      | Ethernet / Networking |
 | `12`      | Zephyr RTOS |
-| `13+`     | Reserved for future extensions |
+| `13`      | Cybersecurity / Secure Boot |
+| `14+`     | Reserved for future extensions |
 
 ---
 
@@ -483,6 +506,7 @@ Phase 0 (Infrastructure)
                                     └── Phase 5 (Debugging)
                                             ├── Phase 6 (Embedded Linux)
                                             │       └── Phase 7 (Ethernet)
+                                            │               └── Phase 9 (Cybersecurity)
                                             └── Phase 8 (Zephyr RTOS)
 ```
 
