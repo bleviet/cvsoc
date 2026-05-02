@@ -1,6 +1,6 @@
 # Project Roadmap
 
-> Last updated: April 2026
+> Last updated: May 2026
 
 This roadmap describes the planned development of the `cvsoc` tutorial series. It is organized into phases that mirror the learning progression described in `about.md`, with cross-cutting quality tracks that run through all phases.
 
@@ -47,6 +47,8 @@ The table below maps each phase to its key CLI tools. No GUI is required at any 
 | 6 FPGA bitstream load | `cp design.rbf /lib/firmware/ && echo 1 > /sys/class/fpga_manager/...` | Loads bitstream from Linux |
 | 7 UDP server | `make -C software/server/` | Builds Linux UDP server application |
 | 7 PC client | `python send_led_pattern.py --host <ip> --pattern 0xA5` | Sends commands from PC |
+| 3B DDR3 test | `arm-linux-gnueabihf-gcc` via `Makefile` | Builds bare-metal DDR3 test app |
+| 3B DDR3 shared | `qsys-script`, `arm-linux-gnueabihf-gcc` | F2H SDRAM bridge + FPGA DMA engine |
 | 8 Zephyr build | `west build -b cyclonev_socdk` | Builds Zephyr RTOS application |
 | 8 Zephyr debug | `west debug` | Launches OpenOCD/GDB for Zephyr |
 
@@ -196,6 +198,42 @@ The table below maps each phase to its key CLI tools. No GUI is required at any 
 
 ### 3.3 Documentation
 - `05_hps_led/doc/README.md`: HPS architecture overview, bridge addressing, bare metal startup sequence
+
+---
+
+## Phase 3B — DDR3 Memory
+
+**Goal:** Master the DDR3 SDRAM subsystem on the Cyclone V SoC. Students will validate DDR3 from the HPS, then enable FPGA-side access via the FPGA-to-HPS SDRAM bridge — the foundation for any design that needs high-bandwidth data exchange between fabric and processor.
+
+### 3B.1 DDR3 Memory Test from HPS
+- `14_ddr3_hps_test` — Bare-metal ARM application that validates DDR3 SDRAM integrity.
+  - Reuses the existing `05_hps_led` Qsys system (HPS + LW bridge + LED PIO).
+  - Runs from DDR3 at `0x00100000` (requires U-Boot SPL to initialise the DDR3 controller first).
+  - Implements three test patterns:
+    1. **Walking ones** — a single '1' bit walks through each bit position at every tested address.
+    2. **Address-as-data** — each address stores its own value; reads back and compares.
+    3. **Alternating patterns** — writes `0xAAAAAAAA` / `0x55555555` across the tested range.
+  - LED feedback: running pattern during test, all-on for PASS, alternating blink for FAIL.
+  - Teaches: DDR3 controller architecture, HPS memory map, memory test methodology.
+
+### 3B.2 Shared DDR3 Access from FPGA and HPS
+- `15_ddr3_fpga_hps` — Enables the FPGA-to-HPS SDRAM bridge (`f2h_sdram0`) so FPGA logic can read/write DDR3 concurrently with the ARM CPU.
+  - Qsys system adds:
+    - F2H SDRAM bridge (64-bit AXI port) for high-bandwidth FPGA access to DDR3.
+    - Custom Avalon-MM master (`ddr3_test_master.vhd`) that performs sequential DDR3 transfers.
+    - Control/status registers on the LW bridge for HPS to start/stop/monitor the FPGA engine.
+  - Bare-metal ARM application demonstrates a producer-consumer test:
+    1. HPS writes pattern A to DDR3 region A.
+    2. FPGA engine writes pattern B to DDR3 region B.
+    3. HPS reads back region B → verifies FPGA wrote correctly.
+    4. FPGA engine reads back region A → verifies HPS wrote correctly.
+  - LED feedback: progress during write/read, all-on for PASS, error count on failure.
+  - Teaches: F2H SDRAM bridge, Avalon-MM master design, shared memory coherency, concurrent access.
+
+### 3B.3 Documentation
+- `14_ddr3_hps_test/doc/README.md`: DDR3 architecture on Cyclone V, HPS memory map, memory test methodology.
+- `15_ddr3_fpga_hps/doc/README.md`: F2H SDRAM bridge, Avalon-MM master design, shared memory patterns.
+- `docs/tutorial_phase3b_ddr3_memory.md`: comprehensive tutorial walkthrough.
 
 ---
 
@@ -491,7 +529,9 @@ These improvements are not tied to a single phase and should progress in paralle
 | `11`      | Ethernet / Networking |
 | `12`      | Zephyr RTOS |
 | `13`      | Cybersecurity / Secure Boot |
-| `14+`     | Reserved for future extensions |
+| `14`      | DDR3 memory test from HPS |
+| `15`      | DDR3 shared access (FPGA + HPS) |
+| `16+`     | Reserved for future extensions |
 
 ---
 
@@ -502,6 +542,9 @@ Phase 0 (Infrastructure)
     └── Phase 1 (Extended VHDL)
             └── Phase 2 (Nios II)
                     └── Phase 3 (HPS Bare Metal)
+                            ├── Phase 3B (DDR3 Memory)
+                            │       ├── 14_ddr3_hps_test
+                            │       └── 15_ddr3_fpga_hps
                             └── Phase 4 (Interrupts)
                                     └── Phase 5 (Debugging)
                                             ├── Phase 6 (Embedded Linux)

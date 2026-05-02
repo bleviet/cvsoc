@@ -1,0 +1,182 @@
+diff --git a/boards/intel/socfpga_std/cyclonev_socdk/support/appli_dl_cmd.gdb b/boards/intel/socfpga_std/cyclonev_socdk/support/appli_dl_cmd.gdb
+index 83d1e8b6819..b190b99c333 100644
+--- a/boards/intel/socfpga_std/cyclonev_socdk/support/appli_dl_cmd.gdb
++++ b/boards/intel/socfpga_std/cyclonev_socdk/support/appli_dl_cmd.gdb
+@@ -1,17 +1,29 @@
+-# Copyright (c) 2022 Intel Corporation
++# Copyright (c) 2022-2024 Intel Corporation
+ # SPDX-License-Identifier: Apache-2.0
+ # Description:
+-# Helper file to use "west flash" with the .elf file
+-# this file is called by the runner for Cyclone V SoC DeKit
++# Start Zephyr execution after the OCRAM copy stub (session 1) has placed
++# the Zephyr binary into DDR.
+ 
+ set confirm off
+ set pagination off
++set remotetimeout 120
+ 
+-restore ./build/zephyr/zephyr.elf
++# The copy stub ended with BKPT #0, leaving the CPU halted at 0xffff0024.
++# A fresh OpenOCD instance reconnected between sessions; issue halt to
++# confirm the halted state (no-op if already halted).
++monitor halt
++
++# Load Zephyr symbols so GDB can resolve symbols for debugging.
++# This session runs with CWD = 12_zephyr_led/.
+ symbol-file -readnow ./build/zephyr/zephyr.elf
+-thbreak main
+-jump z_arm_reset
+ 
+-# Execute OpenOCD "resume" command to keep the target running, then quit gdb.
+-mon resume
++# Reset the PC to Zephyr's vector table / entry point at physical 0x0.
++# (Zephyr is linked at 0x0 = DDR base; the copy stub already placed it
++# there.)  Using set $pc avoids going through the ARM reset handler
++# infrastructure and works regardless of whether z_arm_reset is exported.
++set $pc = 0x00000000
++
++# Resume Zephyr and immediately quit GDB.  The runner kills OpenOCD after
++# GDB exits, but by then the CPU is already executing from DDR.
++monitor resume
+ quit
+diff --git a/boards/intel/socfpga_std/cyclonev_socdk/support/download_all.gdb b/boards/intel/socfpga_std/cyclonev_socdk/support/download_all.gdb
+index 97700438910..4ee18e86233 100644
+--- a/boards/intel/socfpga_std/cyclonev_socdk/support/download_all.gdb
++++ b/boards/intel/socfpga_std/cyclonev_socdk/support/download_all.gdb
+@@ -1,18 +1,115 @@
+ # Copyright (c) 2022-2024 Intel Corporation
+ # SPDX-License-Identifier: Apache-2.0
+ # Description:
+-# Download preloader and .elf using GDB commands
++# Stage Zephyr into OCRAM, then execute a copy stub that writes it to DDR.
++# Works whether the board is in SPL hang or running Linux.
+ 
+ set confirm off
+ set pagination off
++set remotetimeout 120
+ 
+-#Download and Run preloader
+-source boards/intel/socfpga_std/cyclonev_socdk/support/preloader_dl_cmd.txt
++# -----------------------------------------------------------------------
++# Step 1: Clear DP STICKY ERROR.
++#
++# On Cyclone V, OpenOCD's background polling reads DBGDSCR via APB-AP.
++# When Linux is running, the OS Lock (DBGOSLAR=0xC5ACCE55) causes ALL
++# APB-AP accesses to return AXI SLVERR, which the JTAG-DP records as a
++# STICKY ERROR.  Once STICKY ERROR is set, ALL subsequent DAP operations
++# fail.  The ABORT register write is the only DAP operation guaranteed to
++# succeed while STICKY ERROR is set.
++# DP register 0x8 = SELECT/ABORT in OpenOCD's JTAG-DP mapping.
++# Bits[4:0]=0x1f clears ORUNERRCLR, WDERRCLR, STKERRCLR, STKCMPCLR, DAPABORT.
++monitor fpgasoc.dap dpreg 0x8 0x1f
+ 
+-#Stop watchdog timer
+-#permodrst Reg , reset watch dog timer
++# -----------------------------------------------------------------------
++# Step 2: Clear OS Lock via a raw APB-AP write to DBGOSLAR (0x80110300).
++#
++# AP0 = APB-AP.  CSW[2:0]=0b010 selects 32-bit transfers.
++# TAR = Cortex-A9 core-0 debug base (0x80110000) + OSLAR offset (0x300).
++# DRW = 0  (any value except 0xC5ACCE55 unlocks debug access).
++monitor fpgasoc.dap apreg 0 0x0 0x00000002
++monitor fpgasoc.dap apreg 0 0x4 0x80110300
++monitor fpgasoc.dap apreg 0 0xC 0x00000000
++
++# -----------------------------------------------------------------------
++# Step 3: Re-initialise the Cortex-A9 debug unit.
++# Sets DBGDSCR.HDE (halting debug enable) and clears any sticky debug faults.
++monitor cortex_a dbginit
++
++# -----------------------------------------------------------------------
++# Step 4: Halt the CPU.
++monitor halt
++
++# -----------------------------------------------------------------------
++# Step 5: Disable MMU, D-cache, and I-cache (SCTLR write).
++# With the MMU off all subsequent debug-halt (ITR) reads/writes use
++# physical addresses.  Value 0x00C50078 keeps the required SBO bits.
++monitor arm mcr 15 0 1 0 0 0x00C50078
++
++# -----------------------------------------------------------------------
++# Step 6: Disable the L4WD0 watchdog.
++# Assert then deassert the watchdog PERMODRST bit.  After deassertion
++# WDT_CR.WDT_EN resets to 0, preventing a mid-flash watchdog reset.
+ set $permodrst = (int *)0xffd05014
+ set *$permodrst = (*$permodrst) | (1<<6)
+ set *$permodrst = (*$permodrst) & ~(1<<6)
+ 
++# -----------------------------------------------------------------------
++# Step 7: Ensure DDR is mapped at physical 0x0 (L3_REMAP MPUZERO=0).
++# SPL calls socfpga_sdram_remap_zero() which already does this, but clear
++# the bit explicitly to guarantee a known state.
++set $l3remap = (int *)0xff800000
++set *$l3remap = *$l3remap & ~1
++
++# -----------------------------------------------------------------------
++# Step 8: Invalidate the PL310 L2 cache (base 0xFFFEE000, 8 ways).
++# Discard stale dirty Linux cachelines so they cannot be written back to
++# DDR after the copy stub runs and corrupt the Zephyr image.
++set $l2inv = (int *)0xFFFEE77C
++set *$l2inv = 0x000000FF
++set $l2busy = 1
++while $l2busy
++  set $l2busy = *$l2inv
++end
++set $l2sync = (int *)0xFFFEE730
++set *$l2sync = 0
++
++# -----------------------------------------------------------------------
++# Step 9: Load stub + Zephyr into OCRAM and run the copy stub.
++#
++# OpenOCD debug-halt (ITR) stores to DDR always fail with DFSR=0x1808
++# (AXI external abort from the Cyclone V NIC-301 fabric) regardless of
++# MMU/MPU state.  ITR stores to OCRAM (0xffff0000) always succeed.
++# Normal-execution CPU stores to DDR succeed — the NIC-301 only filters
++# debug-halt ITR transactions.
++#
++# Strategy:
++#  a. Load the 48-byte copy stub and Zephyr.bin into OCRAM via ITR.
++#  b. Set PC = stub entry, resume.  The stub copies Zephyr from OCRAM to
++#     DDR using normal STR instructions, then executes BKPT #0.
++#  c. GDB catches the breakpoint and the session ends cleanly.
++#
++# Stub layout (ocram_copy_stub.bin, 48 bytes at 0xffff0000):
++#   0xffff0000  mov r0, #0            ; DDR destination base
++#   0xffff0004  ldr r1, [pc, #28]    ; src  = 0xffff0040 (OCRAM after stub)
++#   0xffff0008  ldr r2, [pc, #28]    ; size = 0xC200 bytes
++#   0xffff000c  cmp r2, #0
++#   0xffff0010  ble 0xffff0024
++#   0xffff0014  ldr r3, [r1], #4
++#   0xffff0018  str r3, [r0], #4
++#   0xffff001c  subs r2, r2, #4
++#   0xffff0020  b   0xffff000c
++#   0xffff0024  bkpt #0              ; signals copy complete
++#   0xffff0028  .word 0xffff0040    ; src literal
++#   0xffff002c  .word 0x0000c200    ; size literal
++#
++# This GDB session runs with --cd=zephyr/ (Zephyr source root).
++restore boards/intel/socfpga_std/cyclonev_socdk/support/ocram_copy_stub.bin binary 0xffff0000
++restore ../build/zephyr/zephyr.bin binary 0xffff0040
++
++# Set PC to the stub entry point and resume as normal CPU execution.
++# GDB will regain control when the stub hits BKPT #0.
++set $pc = 0xffff0000
++continue
++
+ quit
+diff --git a/boards/intel/socfpga_std/cyclonev_socdk/support/openocd.cfg b/boards/intel/socfpga_std/cyclonev_socdk/support/openocd.cfg
+index c1bbcdc87b8..62cef43cfb9 100644
+--- a/boards/intel/socfpga_std/cyclonev_socdk/support/openocd.cfg
++++ b/boards/intel/socfpga_std/cyclonev_socdk/support/openocd.cfg
+@@ -5,3 +5,10 @@
+ 
+ source [find altera-usb-blaster2-cyclonev.cfg]
+ source [find target/altera_fpgasoc.cfg]
++
++# Disable background target polling to prevent JTAG-DP STICKY ERROR
++# accumulation.  On Cyclone V, APB-AP reads of DBGDSCR return SLVERR when
++# Linux sets the OS lock (DBGOSLAR), which propagates to a DP STICKY ERROR
++# that blocks ALL subsequent DAP operations until the ABORT register is
++# written.  The GDB flash scripts handle halting and polling explicitly.
++poll off

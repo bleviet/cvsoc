@@ -24,3 +24,6 @@
 *_summary.csv
 **/hps_sdram_p0_all_pins.txt
 **/hps_sdram_p0_summary.csv
+
+# Quartus IDE working directory (single-char temp dir, e.g. "?")
+**/quartus/?/
