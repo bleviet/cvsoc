@@ -154,26 +154,21 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"; \
 	    kill $$(pgrep jtagd) 2>/dev/null || true'
 
-# download-elf: Loads the bare-metal binary into HPS OCRAM via JTAG (OpenOCD in Docker).
-#   Runs OpenOCD inside the raetro/quartus container (--privileged for USB access).
-OPENOCD_CFG  = ../scripts/de10_nano_hps.cfg
+# download-elf: Loads the bare-metal binary into HPS OCRAM via JTAG (host openocd).
+#   Uses usb_blaster/ublast2 direct mode to recover from DP STICKY + OS lock.
+OPENOCD_UBLAST_CFG = ../scripts/de10_nano_hps_ublast2.cfg
+BLASTER_FW         = $(REPO_ROOT)/12_zephyr_led/zephyr/boards/intel/socfpga_std/cyclonev_socdk/support/blaster_6810.hex
+APP_BIN            = $(REPO_ROOT)/$(PROJECT_NAME)/software/app/hps_led.bin
 
 download-elf: usb-wsl $(APP_DIR)/hps_led.elf
-	docker run --rm --user $$(id -u):$$(id -g) --privileged \
-	  -v $(REPO_ROOT):/work \
-	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
-	  -v $(realpath $(OPENOCD_CFG)):/tmp/de10_nano_hps.cfg:ro \
-	  $(DOCKER_IMAGE) \
-	  bash -c '\
-	    /opt/intelFPGA/quartus/bin/jtagd && sleep 2 && \
-	    /opt/intelFPGA/quartus/bin/openocd \
-	      -f /tmp/de10_nano_hps.cfg \
-	      -c "init" \
-	      -c "halt" \
-	      -c "load_image /work/05_hps_led/software/app/hps_led.bin 0xFFFF0000 bin" \
-	      -c "resume 0xFFFF0000" \
-	      -c "shutdown"; \
-	    kill $$(pgrep jtagd) 2>/dev/null || true'
+	openocd \
+	  -c "set BLASTER_FW $(BLASTER_FW)" \
+	  -f $(realpath $(OPENOCD_UBLAST_CFG)) \
+	  -c "init" \
+	  -c "fpgasoc_prepare_ocram_exec" \
+	  -c "load_image $(APP_BIN) 0xFFFF0000 bin" \
+	  -c "resume 0xFFFF0000" \
+	  -c "shutdown"
 	@echo "Done: HPS LED application is running."
 
 # deploy-elf: Copies the bare-metal HPS ELF + binary to the board over SSH.
