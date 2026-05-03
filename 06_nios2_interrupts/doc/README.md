@@ -78,9 +78,19 @@ debounce: one edge → one interrupt.
 
 ```bash
 docker run --rm \
-  -v /path/to/cvsoc:/work \
+  -v $(pwd):/work \
   cvsoc/quartus:23.1 \
-  bash -c "cd /work/06_nios2_interrupts/quartus && make all"
+  bash -c 'cd /work/06_nios2_interrupts/qsys && qsys-script --script=nios2_system.tcl && \
+    cd /work/06_nios2_interrupts/quartus && \
+    qsys-generate ../qsys/nios2_system.qsys --synthesis=VHDL --output-directory=../qsys/nios2_system_gen && \
+    quartus_sh -t de10_nano_project.tcl && \
+    quartus_sh --flow compile 06_nios2_interrupts -c de10_nano && \
+    mkdir -p ../software/bsp && \
+    nios2-bsp-create-settings --sopc ../qsys/nios2_system.sopcinfo --type hal \
+      --settings ../software/bsp/settings.bsp --bsp-dir ../software/bsp \
+      --script /opt/intelFPGA/nios2eds/sdk2/bin/bsp-set-defaults.tcl --cpu-name nios2 && \
+    make -C ../software/bsp WINDOWS_EXE= && \
+    make -C ../software/app'
 ```
 
 | Step | Make target | Tool                        | Output                              |
@@ -145,15 +155,159 @@ updates.
 ## Programming the board
 
 ```bash
-# Program FPGA
-quartus_pgm -m jtag -o "p;output_files/06_nios2_interrupts.sof"
+# Program FPGA bitstream
+docker run --rm --privileged \
+  -v /dev/bus/usb:/dev/bus/usb \
+  -v $(pwd):/work \
+  cvsoc/quartus:23.1 \
+  bash -c 'jtagd && sleep 2 && \
+    quartus_pgm -m jtag -o "p;/work/06_nios2_interrupts/quartus/de10_nano.sof@2"; \
+    kill $(pgrep jtagd) 2>/dev/null || true'
 
-# Download ELF (and run)
-nios2-download -g software/app/nios2_interrupts.elf
+# Download ELF and run
+docker run --rm --privileged \
+  -v $(pwd):/work \
+  -v $(pwd)/common/docker/uname_shim.sh:/usr/local/bin/uname:ro \
+  cvsoc/quartus:23.1 \
+  nios2-download -g /work/06_nios2_interrupts/software/app/nios2_interrupts.elf
 
-# Watch JTAG UART output
-nios2-terminal
+# Open JTAG UART terminal
+docker run --rm -it --privileged \
+  -v $(pwd)/common/docker/uname_shim.sh:/usr/local/bin/uname:ro \
+  cvsoc/quartus:23.1 \
+  nios2-terminal
 ```
+
+## Debugging
+
+All three workflows share the same first step: start the GDB server in a
+dedicated terminal and leave it running.
+
+```bash
+cd ~/workspace/bleviet/cvsoc/06_nios2_interrupts/quartus
+make gdb-server          # starts nios2-gdb-server on localhost:2345
+```
+
+The server resets the Nios II CPU and prints:
+```
+Listening on port 2345 for connection from GDB:
+```
+Leave this terminal open.  Connect a GDB client in any of the three ways below.
+
+### Option A — GDB TUI (terminal, split source + assembly view)
+
+```bash
+# In a second terminal
+cd ~/workspace/bleviet/cvsoc/06_nios2_interrupts/quartus
+make gdb-tui
+```
+
+GDB opens in TUI mode.  The init script (`scripts/nios2_interrupts.gdb`)
+connects to port 2345, loads the ELF, and sets a breakpoint at `button_isr`.
+Press **KEY[0]** or **KEY[1]** on the board to trigger the ISR.
+
+Useful TUI keys:
+
+| Key        | Action                            |
+|------------|-----------------------------------|
+| `Ctrl-X a` | Toggle TUI on / off               |
+| `Ctrl-X 2` | Source + assembly split           |
+| `Ctrl-L`   | Refresh screen after noisy output |
+| `↑ ↓`      | Scroll the active window          |
+
+Useful GDB commands once halted inside `button_isr`:
+
+```
+inspect-led        — read LED PIO DATA register (0x00010010)
+inspect-buttons    — read button PIO DATA + EDGE_CAPTURE
+print/x edges      — print the captured edge bits
+bt                 — show the call stack
+continue           — resume until next button press
+```
+
+### Option B — VS Code
+
+1. Open the workspace in VS Code.
+2. Set the USB bus ID once in `.vscode/settings.json`:
+   ```json
+   "cvsoc.usbBusId": "<your-busid>"   // find with: usbipd.exe list
+   ```
+3. Press **F5**, select **"Toolchain: Debug Nios II (Project 06 — Interrupts)"**.
+
+VS Code automatically starts the GDB server, waits for it to print
+`Listening on port`, then connects GDB, loads the ELF, and breaks at
+`button_isr`.  The Variables / Call Stack / Breakpoints panels appear in the
+sidebar.
+
+### Option C — Neovim (LazyVim + nvim-dap)
+
+**Prerequisites (already satisfied on this machine):**
+
+| Requirement | Status |
+|-------------|--------|
+| `lazyvim.plugins.extras.dap.core` enabled | ✓ in `~/.config/nvim/lazyvim.json` |
+| mason package `cpptools` installed | ✓ provides `OpenDebugAD7` |
+| `~/.config/nvim/lua/plugins/nvim-dap.lua` installed | ✓ |
+
+The plugin file is kept in sync at `doc/nvim-dap.lua`.  If you need to
+reinstall it on a new machine:
+
+```bash
+cp ~/workspace/bleviet/cvsoc/06_nios2_interrupts/doc/nvim-dap.lua \
+   ~/.config/nvim/lua/plugins/nvim-dap.lua
+```
+
+Then open Neovim and run `:Lazy sync` to apply the change.
+
+**What the plugin does:**
+
+- Registers the `cppdbg` DAP adapter pointing to
+  `~/.local/share/nvim/mason/packages/cpptools/extension/debugAdapters/bin/OpenDebugAD7`
+- Adds a `"Nios II: 06 — Interrupts"` configuration for filetype `c`
+- Uses `~/workspace/bleviet/cvsoc/common/docker/nios2-elf-gdb-wrapper.sh`
+  as the GDB executable (runs `nios2-elf-gdb` inside the Docker image)
+
+**Debugging workflow:**
+
+```bash
+# Terminal — start the GDB server
+cd ~/workspace/bleviet/cvsoc/06_nios2_interrupts/quartus
+make gdb-server
+```
+
+```
+# Neovim
+nvim ~/workspace/bleviet/cvsoc/06_nios2_interrupts/software/app/main.c
+```
+
+Press **`<leader>dc`** → pick **"Nios II: 06 — Interrupts"** → `Enter`.
+
+nvim-dap-ui opens automatically (panels: Variables, Call Stack, Watches,
+Breakpoints, REPL).  Press **KEY[0]** or **KEY[1]** on the board to hit the
+`button_isr` breakpoint.
+
+Key bindings (LazyVim defaults):
+
+| Key            | Action                     |
+|----------------|----------------------------|
+| `<leader>dc`   | Start / continue           |
+| `<leader>db`   | Toggle breakpoint          |
+| `<leader>dB`   | Conditional breakpoint     |
+| `<leader>do`   | Step over                  |
+| `<leader>di`   | Step into                  |
+| `<leader>dO`   | Step out                   |
+| `<leader>dr`   | Open REPL                  |
+| `<leader>du`   | Toggle nvim-dap-ui         |
+
+**Troubleshooting:**
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `adapter not found: cppdbg` | Mason package not installed | `:MasonInstall cpptools` |
+| `DAP Error on launch` (instant exit) | Missing `miDebuggerServerAddress` — cppdbg validates the ELF as a native binary and rejects the Nios II cross-compiled ELF | Ensure `nvim-dap.lua` has `miDebuggerServerAddress = "localhost:2345"` |
+| `Connection refused` on port 2345 | GDB server not running | Run `make gdb-server` first |
+| `No such file or directory` for ELF | App not built | Run `make app` |
+| GDB wrapper fails | Docker not running | Start Docker Desktop |
 
 ## Concepts covered
 

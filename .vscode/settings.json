@@ -1,0 +1,6 @@
+{
+    // USB-Blaster II bus ID for WSL2 USB attachment (usbipd).
+    // Find yours with:  usbipd.exe list   (look for "USB-Blaster")
+    // Then update this value and all debug tasks will pick it up automatically.
+    "cvsoc.usbBusId": "8-3"
+}

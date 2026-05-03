@@ -40,6 +40,23 @@
             "launchCompleteCommand": "exec-continue"
         },
         {
+            "name": "Toolchain: Debug Nios II (Project 06 — Interrupts)",
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "gdb-server: Start Nios II GDB server (Project 06)",
+            "program": "${workspaceFolder}/06_nios2_interrupts/software/app/nios2_interrupts.elf",
+            "cwd": "${workspaceFolder}/06_nios2_interrupts/software/app",
+            "MIMode": "gdb",
+            "miDebuggerPath": "${workspaceFolder}/common/docker/nios2-elf-gdb-wrapper.sh",
+            "setupCommands": [
+                { "text": "file ${workspaceFolder}/06_nios2_interrupts/software/app/nios2_interrupts.elf", "ignoreFailures": false },
+                { "text": "target remote localhost:2345", "ignoreFailures": false },
+                { "text": "load", "ignoreFailures": false },
+                { "text": "break button_isr", "ignoreFailures": false }
+            ],
+            "launchCompleteCommand": "exec-continue"
+        },
+        {
             "name": "Toolchain: Debug Nios II (Project 08)",
             "type": "cppdbg",
             "request": "launch",

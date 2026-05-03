@@ -4,7 +4,7 @@
         {
             "label": "openocd: Start HPS GDB server",
             "type": "shell",
-            "command": "make openocd",
+            "command": "make openocd USBIPD_BUSID=${config:cvsoc.usbBusId}",
             "options": {
                 "cwd": "${workspaceFolder}/09_hps_debug/quartus"
             },
@@ -25,9 +25,32 @@
             }
         },
         {
+            "label": "gdb-server: Start Nios II GDB server (Project 06)",
+            "type": "shell",
+            "command": "make gdb-server USBIPD_BUSID=${config:cvsoc.usbBusId}",
+            "options": {
+                "cwd": "${workspaceFolder}/06_nios2_interrupts/quartus"
+            },
+            "isBackground": true,
+            "runOptions": { "instanceLimit": 1 },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": {
+                "pattern": { "regexp": "^$" },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".",
+                    "endsPattern": "Listening on port"
+                }
+            }
+        },
+        {
             "label": "gdb-server: Start Nios II GDB server",
             "type": "shell",
-            "command": "make gdb-server",
+            "command": "make gdb-server USBIPD_BUSID=${config:cvsoc.usbBusId}",
             "options": {
                 "cwd": "${workspaceFolder}/08_nios2_debug/quartus"
             },
@@ -43,7 +66,7 @@
                 "background": {
                     "activeOnStart": true,
                     "beginsPattern": ".",
-                    "endsPattern": "Waiting for connection"
+                    "endsPattern": "Listening on port"
                 }
             }
         }

@@ -23,6 +23,9 @@ USBIPD_BUSID ?= 2-4
 # JTAG chain device index: 1=HPS ARM DAP, 2=Cyclone V FPGA
 DEVICE_INDEX ?= 2
 
+# Nios II GDB server port (nios2-gdb-server listens here; GDB clients connect to it)
+GDB_PORT     ?= 2345
+
 REPO_ROOT  = $(realpath ../..)
 UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
 DOCKER     = docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
@@ -39,6 +42,7 @@ DOCKER_GUI = docker run --rm --user $$(id -u):$$(id -g) \
 
 .PHONY: all qsys project compile bsp app clean check_timing \
         program-sof download-elf terminal usb-windows usb-wsl \
+        close-gdb-port gdb-server gdb-tui \
         quartus-gui platform-designer
 
 all:
@@ -129,6 +133,59 @@ terminal: usb-wsl
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  $(DOCKER_IMAGE) \
 	  nios2-terminal
+
+# ── GDB server ────────────────────────────────────────────────────────────────
+# close-gdb-port: Stops any running Docker container that currently publishes
+#   localhost:$(GDB_PORT), so gdb-server can bind the port reliably.
+close-gdb-port:
+	@PORT_CONTAINERS=$$(docker ps --format '{{.ID}} {{.Ports}}' | \
+	  grep -E "(0\\.0\\.0\\.0|\\[::\\]):$(GDB_PORT)->$(GDB_PORT)/tcp" | \
+	  awk '{print $$1}'); \
+	if [ -n "$$PORT_CONTAINERS" ]; then \
+	  echo "Stopping container(s) using port $(GDB_PORT): $$PORT_CONTAINERS"; \
+	  docker stop $$PORT_CONTAINERS >/dev/null; \
+	else \
+	  echo "Port $(GDB_PORT) is free (no Docker container bound)."; \
+	fi
+
+# Starts nios2-gdb-server and keeps it running so a GDB client can connect.
+# Run this in one terminal, then run 'make gdb-tui' in a second terminal.
+#
+# The server resets the Nios II CPU and waits for a connection on
+# localhost:$(GDB_PORT).  --tcppersist keeps it alive after GDB disconnects.
+gdb-server: close-gdb-port usb-wsl
+	docker run --rm --user $$(id -u):$$(id -g) -it --privileged \
+	  -p $(GDB_PORT):$(GDB_PORT) \
+	  -v $(REPO_ROOT):/work \
+	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
+	  $(DOCKER_IMAGE) \
+	  bash -c '/opt/intelFPGA/quartus/bin/jtagd && sleep 2 && \
+	    nios2-gdb-server \
+	      --tcpport $(GDB_PORT) \
+	      --tcppersist \
+	      --tcpdebug; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
+
+# ── GDB TUI session ───────────────────────────────────────────────────────────
+# Opens nios2-elf-gdb in TUI mode (source + assembly split view).
+# Requires gdb-server to be running first (make gdb-server in another terminal).
+#
+# TUI key bindings:
+#   Ctrl-X a     toggle TUI on/off
+#   Ctrl-X 1     source window only
+#   Ctrl-X 2     source + assembly windows
+#   Ctrl-L       refresh display after output noise
+#   Arrow keys   scroll the active window
+gdb-tui: $(APP_DIR)/nios2_interrupts.elf
+	docker run --rm -it \
+	  --network host \
+	  -e TERM=$(TERM) \
+	  -v $(REPO_ROOT):/work \
+	  $(DOCKER_IMAGE) \
+	  nios2-elf-gdb -tui \
+	    -ex "set pagination off" \
+	    -x /work/06_nios2_interrupts/scripts/nios2_interrupts.gdb \
+	    /work/06_nios2_interrupts/software/app/nios2_interrupts.elf
 
 # ── GUI targets ───────────────────────────────────────────────────────────────
 # Opens a GUI tool inside Docker with X11 forwarding to the WSL2 host.
