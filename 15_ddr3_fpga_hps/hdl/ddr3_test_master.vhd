@@ -57,7 +57,7 @@ end entity ddr3_test_master;
 architecture rtl of ddr3_test_master is
 
   -- FSM states
-  type state_t is (S_IDLE, S_WRITE, S_WRITE_WAIT, S_READ, S_READ_WAIT, S_DONE);
+  type state_t is (S_IDLE, S_WRITE, S_READ, S_READ_WAIT, S_DONE);
   signal state : state_t := S_IDLE;
 
   -- Control/status registers
@@ -185,15 +185,12 @@ begin
             end if;
           end if;
 
-        -- ── WRITE: issue write transaction ────────────────────────────
+        -- ── WRITE: hold write signals until slave accepts (waitrequest=0) ─
+        -- Staying in S_WRITE until accepted avoids issuing the same
+        -- transaction twice (old two-state S_WRITE→S_WRITE_WAIT always
+        -- re-asserted write on entry to S_WRITE_WAIT even when waitrequest
+        -- was already 0 in S_WRITE, causing a duplicate write).
         when S_WRITE =>
-          avm_address   <= std_logic_vector(current_addr);
-          avm_writedata <= expected_data;
-          avm_write     <= '1';
-          state         <= S_WRITE_WAIT;
-
-        -- ── WRITE_WAIT: wait for waitrequest de-assertion ─────────────
-        when S_WRITE_WAIT =>
           avm_address   <= std_logic_vector(current_addr);
           avm_writedata <= expected_data;
           avm_write     <= '1';
@@ -204,25 +201,27 @@ begin
               state <= S_DONE;
             else
               word_counter <= word_counter + 1;
-              state <= S_WRITE;
+              -- stay in S_WRITE; current_addr and expected_data update next cycle
             end if;
           end if;
 
-        -- ── READ: issue read transaction ──────────────────────────────
+        -- ── READ: hold read asserted until the address is accepted ────
+        -- Only advance to S_READ_WAIT after waitrequest=0 so exactly one
+        -- read request is issued per word.  The old code always moved to
+        -- S_READ_WAIT unconditionally and then re-asserted avm_read there,
+        -- issuing a duplicate read that produced two readdatavalid pulses.
         when S_READ =>
-          avm_address <= std_logic_vector(current_addr);
-          avm_read    <= '1';
-          state       <= S_READ_WAIT;
-
-        -- ── READ_WAIT: wait for valid read data ───────────────────────
-        when S_READ_WAIT =>
           avm_address <= std_logic_vector(current_addr);
           avm_read    <= '1';
 
           if avm_waitrequest = '0' then
             avm_read <= '0';
+            state    <= S_READ_WAIT;
           end if;
 
+        -- ── READ_WAIT: wait for the single read response ──────────────
+        -- avm_read is already de-asserted; we are just waiting for data.
+        when S_READ_WAIT =>
           if avm_readdatavalid = '1' then
             -- Compare read data against expected pattern
             if avm_readdata /= expected_data then

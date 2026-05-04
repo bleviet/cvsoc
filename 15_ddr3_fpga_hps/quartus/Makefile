@@ -121,25 +121,24 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"; \
 	    kill $$(pgrep jtagd) 2>/dev/null || true'
 
-OPENOCD_CFG  = ../scripts/de10_nano_hps.cfg
-
 download-elf: usb-wsl $(APP_DIR)/ddr3_fpga_hps.elf
 	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
-	  -v $(realpath $(OPENOCD_CFG)):/tmp/de10_nano_hps.cfg:ro \
 	  $(DOCKER_IMAGE) \
 	  bash -c '\
 	    /opt/intelFPGA/quartus/bin/jtagd && sleep 2 && \
 	    /opt/intelFPGA/quartus/bin/openocd \
-	      -f /tmp/de10_nano_hps.cfg \
+	      -f /work/$(PROJECT_NAME)/scripts/de10_nano_hps.cfg \
 	      -c "init" \
 	      -c "halt" \
-	      -c "load_image /work/15_ddr3_fpga_hps/software/app/ddr3_fpga_hps.bin 0x00100000 bin" \
+	      -c "wait_halt 5000" \
+	      -c "load_image /work/$(PROJECT_NAME)/software/app/ddr3_fpga_hps.bin 0x00100000 bin" \
+	      -c "arm mcr 15 0 7 5 0 0" \
 	      -c "resume 0x00100000" \
-	      -c "shutdown"; \
+	      -c "shutdown" && \
+	    echo "Done: DDR3 FPGA+HPS test application is running."; \
 	    kill $$(pgrep jtagd) 2>/dev/null || true'
-	@echo "Done: DDR3 FPGA+HPS test application is running."
 
 deploy-elf: $(APP_DIR)/ddr3_fpga_hps.elf
 	scp $(APP_DIR)/ddr3_fpga_hps.elf $(APP_DIR)/ddr3_fpga_hps.bin \
