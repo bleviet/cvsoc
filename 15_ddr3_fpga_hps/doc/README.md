@@ -63,6 +63,18 @@ The FPGA test engine is controlled from the HPS via registers at `0xFF201000`:
 | | | | bits [31:16]: error count |
 | `0x10` | PATTERN | R/W | Base test pattern (actual data = pattern + offset) |
 
+This table is now also mirrored in a schema-validated
+[`ddr3_test_master.mm.yml`](../ddr3_test_master.mm.yml), hand-authored from
+this component's own VHDL comment block and cross-checked against this
+table — see
+[Part 3 of the IPCraft tutorial series](https://github.com/bleviet/ipcraft-vscode/blob/main/docs/tutorials/importing-avalon-mm-peripherals.md)
+for how the two are kept in sync and what IPCraft's importers do (and don't)
+capture automatically. A companion
+[`ddr3_test_master.ip.yml`](../ddr3_test_master.ip.yml) describes the
+two-interface bus structure (Avalon-MM slave for these registers, Avalon-MM
+master for DDR3 access), reconciled from both `IPCraft: Import from VHDL`
+and `IPCraft: Import from Platform Designer _hw.tcl`.
+
 ## Test Procedure
 
 ```

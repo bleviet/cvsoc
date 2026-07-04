@@ -1,0 +1,73 @@
+vlnv:
+  vendor: cvsoc
+  library: peripherals
+  name: ddr3_test_master
+  version: 1.0.0
+apiVersion: '1.0'
+description: >
+  Avalon-MM master for DDR3 memory test via the FPGA-to-HPS SDRAM bridge.
+  Reverse-engineered by IPCraft's VHDL and Platform Designer importers as a
+  cross-check of both against a real, hand-written, in-production Avalon-MM
+  core with two interfaces (see docs/tutorials/importing-avalon-mm-peripherals.md).
+
+clocks:
+  - name: clk
+    direction: in
+    associatedReset: reset_n
+
+resets:
+  - name: reset_n
+    direction: in
+    polarity: activeLow
+    associatedClock: clk
+
+busInterfaces:
+  # avs (slave): reconciled from both IPCraft:Import from VHDL and
+  # IPCraft:Import from Platform Designer _hw.tcl. Both agree on role
+  # (slave), physicalPrefix (avs_), associatedClock/Reset. Neither importer
+  # emits a memoryMapRef -- IPCraft's importers reconstruct bus-interface
+  # structure only, never register semantics; the memory map below is
+  # hand-authored from the VHDL's own register-map comment block.
+  #
+  # NOTE: VhdlParser's import omitted useOptionalPorts entirely for this
+  # interface (a real, confirmed gap -- see the tutorial); the list below is
+  # taken from the independent HwTclParser import, which agrees with a
+  # direct reading of the VHDL port list.
+  - name: avs
+    type: ipcraft:busif:avalon_mm:1.0
+    mode: slave
+    physicalPrefix: avs_
+    associatedClock: clk
+    associatedReset: reset_n
+    memoryMapRef: DDR3_TEST_MASTER_CSR
+    useOptionalPorts:
+      - address
+      - read
+      - write
+      - writedata
+      - readdata
+    portWidthOverrides:
+      address: 3
+
+  # avm (master): both importers agree on role (master) and physicalPrefix
+  # (avm_). HwTclParser's useOptionalPorts list (below) is the complete,
+  # correct one -- VhdlParser's omitted address/read/write/writedata/readdata
+  # here too, listing only byteenable/readdatavalid/waitrequest.
+  - name: avm
+    type: ipcraft:busif:avalon_mm:1.0
+    mode: master
+    physicalPrefix: avm_
+    associatedClock: clk
+    associatedReset: reset_n
+    useOptionalPorts:
+      - address
+      - read
+      - write
+      - byteenable
+      - writedata
+      - readdata
+      - readdatavalid
+      - waitrequest
+
+memoryMaps:
+  import: ddr3_test_master.mm.yml
