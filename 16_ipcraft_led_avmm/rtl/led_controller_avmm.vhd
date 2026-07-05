@@ -20,7 +20,7 @@ entity led_controller_avmm is
 
 
     -- S_AVMM (SLAVE)
-    avs_address    : in  std_logic_vector(31 downto 0);
+    avs_address    : in  std_logic_vector(3 downto 0);
     avs_read       : in  std_logic;
     avs_write      : in  std_logic;
     avs_byteenable : in  std_logic_vector(3 downto 0);

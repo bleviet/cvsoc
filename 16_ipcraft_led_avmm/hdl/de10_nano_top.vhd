@@ -22,7 +22,7 @@ architecture rtl of de10_nano_top is
   component led_avmm_system is
     port (
       clk_clk                        : in  std_logic;
-      led_external_connection_export : out std_logic_vector(7 downto 0);
+      led_external_connection_led : out std_logic_vector(7 downto 0);
       reset_reset                    : in  std_logic
     );
   end component led_avmm_system;
@@ -47,7 +47,7 @@ begin
     port map (
       clk_clk                        => fpga_clk1_50,
       reset_reset                    => power_on_reset,
-      led_external_connection_export => led
+      led_external_connection_led => led
     );
 
 end architecture rtl;
