@@ -1,1 +1,0 @@
-../altera/regmap_conformance_hw.tcl
