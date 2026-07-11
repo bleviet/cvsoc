@@ -1,0 +1,87 @@
+# Hand-authored from ddr3_test_master.vhd's own register-map comment block
+# (hdl/ddr3_test_master.vhd lines 14-27) and cross-checked against the
+# markdown table in doc/README.md. This is cvsoc's first schema-validated
+# register map for this peripheral -- previously the register map existed
+# only as prose in two places (a VHDL comment and a markdown table) with no
+# machine-checked link between them.
+- name: DDR3_TEST_MASTER_CSR
+  description: >
+    Control/status registers for the DDR3 test engine, on the Lightweight
+    HPS-to-FPGA bridge at 0xFF201000 (see qsys/hps_system.tcl).
+  addressBlocks:
+    - name: CSR
+      baseAddress: 0
+      usage: register
+      access: read-write
+      defaultRegWidth: 32
+      registers:
+        - name: CTRL
+          offset: 0
+          access: read-write
+          description: Control register
+          fields:
+            - name: START
+              bits: '[0:0]'
+              access: write-self-clearing
+              description: >
+                Write 1 to begin. Auto-clears once the FSM enters RUNNING
+                (hdl/ddr3_test_master.vhd: "if running = '1' then
+                reg_ctrl(0) <= '0'"), structurally identical to IPCraft's
+                own generated write-self-clearing codegen
+                (register_file.vhdl.j2's regs_in.<reg>_clear pattern).
+            - name: MODE
+              bits: '[1:1]'
+              access: read-write
+              description: 0 = write test pattern, 1 = read + verify
+            - name: RUNNING
+              bits: '[2:2]'
+              access: read-only
+              description: Live FSM status; 1 while a transfer is in progress
+        - name: BASE_ADDR
+          offset: 4
+          access: read-write
+          description: Start address in DDR3 space
+          fields:
+            - name: VALUE
+              bits: '[31:0]'
+              access: read-write
+        - name: LENGTH
+          offset: 8
+          access: read-write
+          description: Number of 32-bit words to transfer
+          fields:
+            - name: VALUE
+              bits: '[31:0]'
+              access: read-write
+        - name: STATUS
+          offset: 12
+          access: read-only
+          description: Transfer status (read-only)
+          fields:
+            - name: DONE
+              bits: '[0:0]'
+              access: read-only
+            - name: ERROR
+              bits: '[1:1]'
+              access: read-only
+              description: Set if any word mismatch was detected (read mode)
+            - name: ERROR_COUNT
+              bits: '[31:16]'
+              access: read-only
+              description: >
+                Mismatch count. Saturates at 0xFFFF in hardware
+                ("if error_count /= x\"FFFF\" then error_count <=
+                error_count + 1"); this saturating-increment behavior is
+                internal update logic, not something the access-type schema
+                describes -- .mm.yml documents the register's interface
+                contract (read-only, 16 bits), not this internal rule.
+        - name: PATTERN
+          offset: 16
+          access: read-write
+          description: >
+            Base test pattern. Write mode: writes PATTERN + word_offset per
+            word. Read mode: expects PATTERN + word_offset per word.
+          fields:
+            - name: VALUE
+              bits: '[31:0]'
+              access: read-write
