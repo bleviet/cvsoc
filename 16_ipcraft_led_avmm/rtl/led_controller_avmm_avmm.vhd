@@ -24,7 +24,7 @@ entity led_controller_avmm_avmm is
     rst : in std_logic;
 
     -- Avalon-MM Slave Interface
-    avs_address      : in  std_logic_vector(3 downto 0);
+    avs_address      : in  std_logic_vector(1 downto 0);
     avs_read         : in  std_logic;
     avs_write        : in  std_logic;
     avs_byteenable   : in  std_logic_vector(3 downto 0);
@@ -55,7 +55,8 @@ begin
   ----------------------------------------------------------------------------
   -- Bus Interface Connections
   ----------------------------------------------------------------------------
-  address   <= avs_address(C_ADDR_WIDTH-1 downto 0);
+  
+  address   <= avs_address & "00";
   read      <= avs_read;
   write     <= avs_write;
   writedata <= avs_writedata;

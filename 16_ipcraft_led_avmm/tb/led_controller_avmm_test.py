@@ -8,15 +8,19 @@ from mm_loader import load_regmap
 async def _write_reg(dut, addr: int, value: int) -> None:
     """Write a 32-bit register over Avalon-MM.
 
-    NOTE: `addr` is the raw byte offset from the .mm.yml, written directly
-    to avs_address with no shift. led_controller_avmm_regs.vhd decodes
-    wr_addr/rd_addr as byte offsets (matching C_REG_*_ADDR constants, e.g.
-    EVENTS at 8), and bus_avmm.vhdl.j2's wrapper does a plain bit-slice of
-    avs_address with no word-to-byte conversion -- there is no `>> 2` here,
-    unlike the generator's default cocotb_test.py.j2 template used to emit
-    (see docs/tutorials/led-controller-avmm-simulation.md for the story).
+    NOTE: `addr` is the raw byte offset from the .mm.yml. avs_address is now a
+    WORDS-addressed port (addressUnits WORDS in led_controller_avmm_hw.tcl) --
+    Quartus/Platform Designer's Avalon-MM interconnect generator fails to
+    build the translator between a BYTES custom slave and
+    altera_nios2_gen2's data_master, confirmed empirically on real hardware
+    bring-up. led_controller_avmm_regs.vhd still decodes wr_addr/rd_addr as
+    byte offsets (matching C_REG_*_ADDR constants, e.g. EVENTS at 8);
+    bus_avmm.vhdl.j2's wrapper reconstructs the byte address by zero-padding
+    the word address's low 2 bits. This driver must do the inverse -- shift
+    the byte offset down by 2 before writing avs_address -- matching what
+    cocotb_test.py.j2 now generates.
     """
-    dut.avs_address.value = addr
+    dut.avs_address.value = addr >> 2
     dut.avs_writedata.value = value
     if hasattr(dut, "avs_byteenable"):
         dut.avs_byteenable.value = 0xF
@@ -30,7 +34,7 @@ async def _write_reg(dut, addr: int, value: int) -> None:
 
 async def _read_reg(dut, addr: int) -> int:
     """Read a 32-bit register over Avalon-MM (see _write_reg for addr note)."""
-    dut.avs_address.value = addr
+    dut.avs_address.value = addr >> 2
     dut.avs_read.value = 1
     await RisingEdge(dut.clk)
     if hasattr(dut, "avs_waitrequest"):

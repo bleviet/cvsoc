@@ -6,6 +6,7 @@
 #
 # Usage: Place this file in the same directory as your RTL files and
 # add the directory to Platform Designer's IP search path.
+
 # -----------------------------------------------------------------------------
 # Package Definition
 # -----------------------------------------------------------------------------
@@ -14,10 +15,7 @@ package require qsys
 # -----------------------------------------------------------------------------
 # Module Properties
 # -----------------------------------------------------------------------------
-set_module_property DESCRIPTION \
-    "Avalon-MM peripheral for the DE10-Nano LED demo (cvsoc roadmap Phase 2.2). Drives 8 board LEDs from a \
-    software-writable pattern register and exposes a free-running heartbeat status bit with a sticky change-of-state \
-    event.
+set_module_property DESCRIPTION "Avalon-MM peripheral for the DE10-Nano LED demo (cvsoc roadmap Phase 2.2). Drives 8 board LEDs from a software-writable pattern register and exposes a free-running heartbeat status bit with a sticky change-of-state event.
 "
 set_module_property NAME led_controller_avmm
 set_module_property VERSION 1.0.0
@@ -61,10 +59,10 @@ set_interface_property reset SVD_ADDRESS_GROUP ""
 
 add_interface_port reset reset reset Input 1
 
-
 # -----------------------------------------------------------------------------
 # Bus Interfaces (Generic)
 # -----------------------------------------------------------------------------
+
 # Interface: S_AVMM (ipcraft:busif:avalon_mm:1.0)
 add_interface S_AVMM avalon end
 set_interface_property S_AVMM associatedClock clk
@@ -76,10 +74,10 @@ set_interface_property S_AVMM CMSIS_SVD_VARIABLES ""
 set_interface_property S_AVMM SVD_ADDRESS_GROUP ""
 
 # Type-specific properties
-set_interface_property S_AVMM addressUnits BYTES
+set_interface_property S_AVMM addressUnits WORDS
 set_interface_property S_AVMM maximumPendingReadTransactions 0
 # Ports
-add_interface_port S_AVMM avs_address address Input 4
+add_interface_port S_AVMM avs_address address Input 2
 add_interface_port S_AVMM avs_read read Input 1
 add_interface_port S_AVMM avs_write write Input 1
 add_interface_port S_AVMM avs_byteenable byteenable Input 4
@@ -103,6 +101,8 @@ add_interface_port led led led Output 8
 # -----------------------------------------------------------------------------
 # Interrupt Interface(s)
 # -----------------------------------------------------------------------------
+
+
 # -----------------------------------------------------------------------------
 # File Sets
 # -----------------------------------------------------------------------------

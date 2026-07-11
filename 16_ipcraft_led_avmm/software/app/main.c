@@ -1,5 +1,4 @@
 #include <stdint.h>
-#include "sys/alt_stdio.h"
 #include "system.h"
 #include "io.h"
 
@@ -19,10 +18,8 @@
  *   0x08 EVENTS        (read-write-1-to-clear: bit0 HEARTBEAT_ACTIVE,
  *                        bit1 HEARTBEAT_TOGGLED)
  *
- * printf is replaced with alt_printf (sys/alt_stdio.h) to avoid pulling in
- * newlib's full vfprintf chain (dtoa + mprec), which alone overflows the
- * 32 KB on-chip RAM. alt_printf supports %x, %s, %c only -- no zero-padding
- * or uppercase hex -- but is sufficient for diagnostic output here.
+ * Keep this demo UART-independent so LED behavior is visible even when no
+ * nios2-terminal session is attached.
  */
 
 #define LED_CTRL_REG_VERSION     0x00
@@ -36,7 +33,7 @@ static void delay_ms(uint32_t ms)
 {
     volatile uint32_t i, j;
     for (i = 0; i < ms; i++)
-        for (j = 0; j < 5000; j++)
+        for (j = 0; j < 320; j++)
             ;
 }
 
@@ -54,24 +51,17 @@ int main(void)
     /* Startup self-test: VERSION must match what IPCraft generated. */
     uint32_t version = IORD_32DIRECT(LED_CTRL_BASE, LED_CTRL_REG_VERSION);
     if (version != EXPECTED_VERSION) {
-        alt_printf("FATAL: led_controller_avmm VERSION mismatch: expected 0x%x, got 0x%x\n",
-               (unsigned)EXPECTED_VERSION, (unsigned)version);
-    } else {
-        alt_printf("led_controller_avmm VERSION OK: 0x%x\n", (unsigned)version);
+        while (1) {
+            IOWR_32DIRECT(LED_CTRL_BASE, LED_CTRL_REG_LED_PATTERN, 0xAA);
+            delay_ms(150);
+            IOWR_32DIRECT(LED_CTRL_BASE, LED_CTRL_REG_LED_PATTERN, 0x55);
+            delay_ms(150);
+        }
     }
 
     while (1) {
         IOWR_32DIRECT(LED_CTRL_BASE, LED_CTRL_REG_LED_PATTERN, patterns[idx]);
         idx = (idx + 1) % num_patterns;
-
-        uint32_t events = IORD_32DIRECT(LED_CTRL_BASE, LED_CTRL_REG_EVENTS);
-        if (events & LED_CTRL_EVENTS_HEARTBEAT_TOGGLED) {
-            alt_putstr("heartbeat\n");
-            /* Write-1-to-clear: only touch the bit we observed set. */
-            IOWR_32DIRECT(LED_CTRL_BASE, LED_CTRL_REG_EVENTS,
-                          LED_CTRL_EVENTS_HEARTBEAT_TOGGLED);
-        }
-
         delay_ms(200);
     }
 

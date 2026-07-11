@@ -33,7 +33,7 @@ MODULE = led_controller_avmm_test
 export COCOTB_TEST_MODULES = $(MODULE)
 
 # Simulator compile flags
-COMPILE_ARGS += --std=08 -frelaxed
+EXTRA_ARGS += --std=08 -frelaxed
 
 # Generate waveforms by default; suppress with WAVES=0
 WAVES ?= 1

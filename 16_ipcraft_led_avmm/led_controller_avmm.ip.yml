@@ -6,9 +6,7 @@ vlnv:
 apiVersion: '1.0'
 scaffold_pack: example-with-docs
 description: >
-  Avalon-MM peripheral for the DE10-Nano LED demo (cvsoc roadmap Phase 2.2).
-  Drives 8 board LEDs from a software-writable pattern register and exposes a
-  free-running heartbeat status bit with a sticky change-of-state event.
+  Avalon-MM peripheral for the DE10-Nano LED demo (cvsoc roadmap Phase 2.2). Drives 8 board LEDs from a software-writable pattern register and exposes a free-running heartbeat status bit with a sticky change-of-state event.
 targets:
   - quartus
 
@@ -43,12 +41,14 @@ busInterfaces:
     associatedReset: reset
     memoryMapRef: LED_AVMM_CSR
     useOptionalPorts:
-      - address
       - read
       - write
       - writedata
       - readdata
+      - address
       - byteenable
+    portWidthOverrides:
+      address: 2
 
 memoryMaps:
   import: led_controller_avmm.mm.yml

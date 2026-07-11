@@ -1,7 +1,7 @@
 # 16 — IPCraft LED Controller (Avalon-MM)
 
 This project builds the peripheral cvsoc's own roadmap called for and never
-built: [`docs/roadmap.md`](../docs/roadmap.md) Phase 2.2 asked for a custom
+built: [`docs/roadmap.md`](../../docs/roadmap.md) Phase 2.2 asked for a custom
 `led_controller_avmm.vhd` Avalon-MM slave with "one write register for LED
 pattern, one read register for LED status," to be added to `common/ip/` for
 reuse — but `04_nios2_led` shipped with the stock `altera_avalon_pio`
@@ -82,8 +82,10 @@ generated entirely inside `_regs.vhd`; the core only drives the live level.
 
 ```
 16_ipcraft_led_avmm/
-├── doc/
-│   └── README.md                    ← this file
+├── docs/
+│   ├── README.md                        ← this file
+│   ├── hardware_debug_process.md
+│   └── led_controller_avmm_registers.md
 ├── led_controller_avmm.ip.yml       ← hand-authored IPCraft spec
 ├── led_controller_avmm.mm.yml       ← hand-authored register map
 ├── rtl/                             ← IPCraft-generated (core.vhd hand-edited)
@@ -206,7 +208,8 @@ met cleanly for a 3-register peripheral at 50 MHz, as expected.
 
 ## Firmware
 
-`software/app/main.c` cycles LED patterns and polls the heartbeat event.
+`software/app/main.c` cycles LED patterns and validates `VERSION` once at
+startup.
 Unlike the stock `altera_avalon_pio` used in `04_nios2_led`, a hand-written
 Platform Designer component doesn't get an auto-generated HAL macro header,
 so registers are accessed directly by offset (see `led_controller_avmm.mm.yml`
@@ -214,7 +217,7 @@ for the address map):
 
 ```c
 IOWR_32DIRECT(LED_CTRL_BASE, 4, pattern);        // LED_PATTERN
-uint32_t events = IORD_32DIRECT(LED_CTRL_BASE, 8); // EVENTS
+uint32_t version = IORD_32DIRECT(LED_CTRL_BASE, 0); // VERSION
 ```
 
 ## Programming the board
@@ -242,20 +245,14 @@ nios2-terminal
 
 ### What to expect
 
-- **Startup self-test**: `led_controller_avmm VERSION OK: 0x00000100` on the
-  JTAG terminal (or a `FATAL: ... VERSION mismatch` line if something is
-  wrong with the generated register file).
 - **LEDs**: the same cycling pattern sequence as `04_nios2_led`, now driven
   by an IPCraft-generated register file instead of the stock
   `altera_avalon_pio`.
-- **`heartbeat` printed roughly once per second**: proves the full
-  round-trip — the free-running divider in `led_controller_avmm_core.vhd`
-  toggles `HEARTBEAT_ACTIVE`, the generated register file's
-  `monitorChangeOf` logic sets the sticky `HEARTBEAT_TOGGLED` bit, Nios II C
-  polls and observes it, prints, and clears it via write-1-to-clear. If the
-  W1C clear didn't actually work in hardware, the print would either stop
-  appearing correctly or the polling loop would misbehave — a real
-  behavioral proof, not just a visual LED check.
+- **Version-mismatch fail-safe**: if `VERSION` is wrong, firmware drives a
+  persistent `0xAA/0x55` error pattern instead of attempting the normal
+  animation.
+- **JTAG terminal is optional**: firmware does not rely on UART output for
+  visible LED behavior.
 
 ## Notes and gotchas found while building this
 
@@ -268,15 +265,11 @@ nios2-terminal
   test. Every port in `avalon_mm.yml`'s bus definition is `presence:
   optional` — even `address`/`read`/`write` — so `useOptionalPorts` must be
   listed explicitly for a functional slave.
-- **`portWidthOverrides.address` must not be narrower than the generator's
-  computed internal address-decode width.** The register file decodes raw
-  **byte** offsets internally (matching the `.mm.yml`'s `offset:` values
-  directly, e.g. `EVENTS` at byte offset `8`); the bus wrapper does a plain
-  bit-slice `avs_address(C_ADDR_WIDTH-1 downto 0)` with no word-to-byte
-  shift. Overriding `address` to 2 bits (assuming a word-indexed convention)
-  produced a GHDL bounds warning and broken address decode. Leaving
-  `useOptionalPorts` include `address` with its default 32-bit width (sliced
-  down correctly) is the safe choice.
+- **Keep the Avalon-MM metadata and RTL in sync.** `S_AVMM` is configured as
+  `addressUnits WORDS` with a 2-bit `avs_address` port, and
+  `led_controller_avmm_avmm.vhd` reconstructs byte offsets internally via
+  `address <= avs_address & "00"`. Mismatching this contract between
+  `led_controller_avmm_hw.tcl`/`.ip.yml` and RTL breaks hardware behavior.
 - The `qsys/led_controller_avmm_hw.tcl` symlink was validated end-to-end on
   a real Platform Designer install (Quartus 25.1std, native, no Docker):
   `add_instance led_ctrl led_controller_avmm` inside a hand-written system
