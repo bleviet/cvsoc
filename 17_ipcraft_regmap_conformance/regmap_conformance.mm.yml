@@ -26,15 +26,15 @@
             - name: MAGIC
               bits: '[31:0]'
               access: read-only
-              # NOTE: keep bit 31 clear. The generator's package.vhdl.j2 emits
-              # to_unsigned(<value>, 32) for 32-bit resetValues, but VHDL's
-              # default `integer` (hence `natural`) argument type is 32-bit
-              # SIGNED (range 0 .. 2147483647) -- a resetValue >= 0x80000000
-              # overflows it and GHDL fails elaboration with "out of bound
-              # expression". Reproduced with 0xC0FFEE01; tracked as a real
-              # generator bug (see docs/hardware-conformance-test-plan.md
-              # findings), worked around here rather than fixed upstream.
-              resetValue: 0x1C0FFEE1
+              # Bit 31 set on purpose: this is a regression check for a real
+              # generator bug (package.vhdl.j2 used to emit
+              # to_unsigned(<value>, 32), which overflows VHDL's 32-bit
+              # SIGNED `integer`/`natural` type for any resetValue >=
+              # 0x80000000, failing GHDL elaboration with "out of bound
+              # expression"). Fixed by emitting a bit-string literal instead
+              # (TemplateLoader.ts `bin` filter). See
+              # docs/hardware_validation_results.md.
+              resetValue: 0xC0FFEE01
 
         - name: SCRATCH
           offset: 0x04

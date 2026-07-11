@@ -102,13 +102,13 @@ def _stim(**bits) -> int:
 async def test_id_readonly(dut):
     await _reset_dut(dut)
     val = await _read_reg(dut, regmap["ID"].offset)
-    assert val == 0x1C0FFEE1, f"ID: expected 0x1C0FFEE1, got 0x{val:08X}"
+    assert val == 0xC0FFEE01, f"ID: expected 0xC0FFEE01, got 0x{val:08X}"
 
     # Writes to a read-only register must have no effect.
     await _write_reg(dut, regmap["ID"].offset, 0xFFFFFFFF)
     await _settle(dut)
     val = await _read_reg(dut, regmap["ID"].offset)
-    assert val == 0x1C0FFEE1, f"ID: expected unchanged 0x1C0FFEE1 after write, got 0x{val:08X}"
+    assert val == 0xC0FFEE01, f"ID: expected unchanged 0xC0FFEE01 after write, got 0x{val:08X}"
 
 
 # ---------------------------------------------------------------------------

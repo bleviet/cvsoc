@@ -49,7 +49,7 @@ package regmap_conformance_pkg is
   end record;
 
   constant C_REG_ID_RESET : t_reg_id := (
-    magic => std_logic_vector(to_unsigned(470810337, 32))
+    magic => "11000000111111111110111000000001"
   );
 
   function to_slv(reg : t_reg_id) return std_logic_vector;
@@ -197,7 +197,7 @@ package regmap_conformance_pkg is
   end record;
 
   constant C_REG_CONTROL_RESET : t_reg_control := (
-    mode => std_logic_vector(to_unsigned(1, 2))
+    mode => "01"
   );
 
   function to_slv(reg : t_reg_control) return std_logic_vector;

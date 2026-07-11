@@ -37,13 +37,6 @@ entity regmap_conformance_avmm is
     rst : in std_logic;
 
     -- Avalon-MM Slave Interface
-    -- avs_address is WORD-addressed (addressUnits WORDS in
-    -- regmap_conformance_hw.tcl) -- Platform Designer's interconnect
-    -- generator cannot build a translator between a BYTES custom slave and
-    -- altera_nios2_gen2's data_master (confirmed on 16_ipcraft_led_avmm
-    -- hardware bring-up). The internal register file still decodes byte
-    -- offsets, so the byte address is reconstructed below by zero-padding
-    -- the word address's low 2 bits.
     avs_address      : in  std_logic_vector(4 downto 0);
     avs_read         : in  std_logic;
     avs_write        : in  std_logic;
@@ -74,6 +67,7 @@ begin
   ----------------------------------------------------------------------------
   -- Bus Interface Connections
   ----------------------------------------------------------------------------
+
   address   <= avs_address & "00";
   read      <= avs_read;
   write     <= avs_write;

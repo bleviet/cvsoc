@@ -74,11 +74,7 @@ set_interface_property S_AVMM CMSIS_SVD_VARIABLES ""
 set_interface_property S_AVMM SVD_ADDRESS_GROUP ""
 
 # Type-specific properties
-# WORDS (not the generator's default BYTES): Platform Designer's interconnect
-# generator cannot build a translator between a BYTES custom slave and
-# altera_nios2_gen2's data_master (confirmed on 16_ipcraft_led_avmm hardware
-# bring-up). avs_address is therefore a word address; regmap_conformance_avmm.vhd
-# reconstructs the byte address by zero-padding the low 2 bits.
+
 set_interface_property S_AVMM addressUnits WORDS
 set_interface_property S_AVMM maximumPendingReadTransactions 0
 # Ports

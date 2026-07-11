@@ -54,32 +54,62 @@ with a non-zero reset value, and two HW-vs-SW priority races
 (`int_status_hw_set_beats_sw_clear`-equivalent coverage is in the cocotb gate;
 the board run covers the steady-state set/clear semantics for every type).
 
-## Generator bugs found (pre-hardware, caught by the pre-hardware gate / GHDL)
+## Generator bugs found and fixed upstream (ipcraft-vscode)
 
-1. **32-bit `resetValue` >= `0x80000000` fails GHDL elaboration.**
-   `package.vhdl.j2` emits `to_unsigned(<value>, 32)` for a field's
+Both bugs below were found during this project's first pass (hand-patched at
+the time — see the original findings in git history) and are now **fixed in
+the generator itself**, verified by regenerating this IP from scratch with no
+hand-patches and re-validating on real hardware (see "Regression test" below).
+
+1. **32-bit `resetValue` >= `0x80000000` failed GHDL elaboration — FIXED.**
+   `package.vhdl.j2` used to emit `to_unsigned(<value>, 32)` for a field's
    `resetValue`; VHDL's default `integer` (and therefore `natural`) type is
    32-bit **signed** (range `0 .. 2147483647`). A resetValue with bit 31 set
-   (e.g. `0xC0FFEE01` = 3237998081) overflows it: GHDL fails elaboration with
-   `out of bound expression`, not a compile-time error, so it surfaces late.
-   Worked around here by picking `0x1C0FFEE1` for `ID.MAGIC` instead;
-   reproduced with `0xC0FFEE01`. **Not fixed upstream** — tracked as a real
-   generator bug for `ipcraft-vscode`.
+   (e.g. `0xC0FFEE01` = 3237998081) overflowed it: GHDL failed elaboration
+   with `out of bound expression`, not a compile-time error, so it surfaced
+   late. **Fix:** emit a fixed-width VHDL bit-string literal instead (a new
+   `bin(value, width)` Nunjucks filter in `TemplateLoader.ts`), which has no
+   integer-range limit. `regmap_conformance.mm.yml`'s `ID.MAGIC` is back to
+   the original `0xC0FFEE01` as a permanent regression check.
 
-2. **`bus_avmm.vhdl.j2` cannot generate a WORD-addressed Avalon-MM slave.**
-   The template unconditionally emits
+2. **`bus_avmm.vhdl.j2` couldn't generate a WORD-addressed Avalon-MM
+   slave — FIXED.** The template unconditionally emitted
    `address <= avs_address(C_ADDR_WIDTH-1 downto 0);` (a byte-address slice),
-   which is an out-of-range VHDL slice whenever
-   `portWidthOverrides.address` narrows the port below `C_ADDR_WIDTH` for
-   WORDS addressing. This is the *exact* class of bug
-   `16_ipcraft_led_avmm`'s hardware bring-up hit and hand-patched
-   (`avs_address & "00"`) — but that fix was never upstreamed into the
-   generator template; it silently regresses for any new Avalon-MM IP that
-   needs WORDS addressing. Worked around here the same way (hand-patch
-   `regmap_conformance_avmm.vhd` + `regmap_conformance_hw.tcl`, both
-   `managed: false`). **Still not fixed upstream.**
+   which is an out-of-range VHDL slice whenever `portWidthOverrides.address`
+   narrows the port below `C_ADDR_WIDTH` for WORDS addressing — the exact
+   class of bug `16_ipcraft_led_avmm`'s hardware bring-up hit and hand-patched
+   (`avs_address & "00"`), but that fix was never upstreamed, so it silently
+   regressed for any new Avalon-MM IP needing WORDS addressing. **Fix:** the
+   template now compares the address port's actual width against
+   `addr_width` and zero-pads (`avs_address & "00"`) instead of slicing
+   whenever the port is narrower. A companion fix in `altera_hw_tcl.j2` makes
+   the generated `_hw.tcl` auto-declare `addressUnits WORDS` (instead of
+   always `BYTES`) whenever the address port is narrowed this way, so the
+   qsys declaration and the RTL's address reconstruction can never disagree.
+   `regmap_conformance_avmm.vhd` and `regmap_conformance_hw.tcl` are no
+   longer `managed: false` in the `.ip.yml` — the generator now produces
+   correct output on a clean scaffold.
 
-3. **qsys instance label colliding with the entity name breaks VHDL
+### Regression test
+
+Both fixes were verified two ways:
+
+- **Isolated:** regenerated the IP into a fresh temp directory (no prior
+  files, no hand-patches) with the original problematic
+  `resetValue: 0xC0FFEE01`. `ghdl -a`/`-e` passed with 0 errors; the emitted
+  `_hw.tcl` auto-declared `addressUnits WORDS` and the `_avmm.vhd` emitted
+  `address <= avs_address & "00";` with no manual intervention.
+- **End-to-end on real hardware:** applied the same fix to this project
+  (removed the `managed: false` workarounds, restored `0xC0FFEE01`),
+  reran the cocotb gate (14/14 PASS), rebuilt the Quartus project from a
+  clean qsys/Quartus state, reprogrammed the DE10-Nano, and reran
+  `conformance_sysconsole.tcl`: **23/23 PASS**, including `id_readonly`
+  reading back the real `0xC0FFEE01` value — the exact scenario that used to
+  fail at GHDL elaboration before even reaching hardware.
+
+## Other findings (not IPCraft generator bugs)
+
+1. **qsys instance label colliding with the entity name breaks VHDL
    synthesis.** `add_instance <name> <entity>` with `<name> == <entity>`
    (e.g. `add_instance regmap_conformance regmap_conformance`) produces a
    Platform Designer-generated top-level VHDL file with a duplicate
@@ -95,13 +125,13 @@ Variant A necessarily includes a Nios II CPU (`docs/hardware-conformance-test-pl
 "Component 4"). `16_ipcraft_led_avmm`'s hardware bring-up found that Platform
 Designer's interconnect generator cannot build a translator between a BYTES
 custom Avalon-MM slave and `altera_nios2_gen2`'s `data_master`. This project
-applied that same fix proactively (`addressUnits WORDS` in
-`altera/regmap_conformance_hw.tcl`, zero-pad reconstruction in
-`rtl/regmap_conformance_avmm.vhd`) *before* attempting a Quartus compile, and
-the qsys generation step confirmed it: the interconnect built cleanly with
-both `nios2.data_master` and `jtag_debug_master.master` connected to the
-WORDS-addressed slave — the same failure mode the LED bring-up hit is now
-prevented by construction for this IP.
+declares a narrower `portWidthOverrides.address` for exactly that reason, and
+the generator (post-fix; see above) now emits `addressUnits WORDS` and the
+zero-pad reconstruction automatically. The qsys generation step confirmed it
+works: the interconnect built cleanly with both `nios2.data_master` and
+`jtag_debug_master.master` connected to the WORDS-addressed slave — the same
+failure mode the LED bring-up hit is now prevented by the generator itself,
+not by a per-project hand-patch.
 
 ## Nios II C host — status and known limitation
 

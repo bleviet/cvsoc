@@ -69,18 +69,8 @@ fileSets:
       - path: rtl/regmap_conformance_core.vhd
         type: vhdl
         managed: false
-      # managed: false — the generator's bus_avmm.vhdl.j2 slices avs_address
-      # as a byte address (avs_address(C_ADDR_WIDTH-1 downto 0)), which is out
-      # of range once portWidthOverrides.address narrows the port for
-      # WORDS addressing. led_controller_avmm hit this exact class of bug on
-      # real hardware (Platform Designer's interconnect generator cannot
-      # build a translator between a BYTES custom slave and
-      # altera_nios2_gen2's data_master); the fix is `avs_address & "00"`
-      # (zero-pad reconstruction) instead of the byte slice. Hand-patched
-      # below; see docs/word-addressing-workaround.md.
       - path: rtl/regmap_conformance_avmm.vhd
         type: vhdl
-        managed: false
       - path: rtl/regmap_conformance.vhd
         type: vhdl
   - name: Simulation_Resources
@@ -95,9 +85,5 @@ fileSets:
   - name: Integration
     description: Integration Files
     files:
-      # managed: false — hand-patched to addressUnits WORDS (see the
-      # RTL_Sources note on regmap_conformance_avmm.vhd above); regeneration
-      # must not revert this back to the default BYTES declaration.
       - path: altera/regmap_conformance_hw.tcl
         type: tcl
-        managed: false

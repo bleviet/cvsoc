@@ -53,7 +53,7 @@
 #define STIM_BUSY_DONE_TRIG     (1u << 8)
 #define STIM_LINK_SPEED(v)      (((uint32_t)(v) & 0xFu) << 9)
 
-#define ID_MAGIC 0x1C0FFEE1u
+#define ID_MAGIC 0xC0FFEE01u
 
 static uint32_t g_fail_count = 0;
 

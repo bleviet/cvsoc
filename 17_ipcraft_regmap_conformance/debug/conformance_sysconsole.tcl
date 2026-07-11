@@ -35,7 +35,7 @@ set REG_CHANNEL_0_COUNT  [expr {$REGMAP_BASE + 0x34}]
 set REG_CHANNEL_1_CONFIG [expr {$REGMAP_BASE + 0x40}]
 set REG_CHANNEL_1_COUNT  [expr {$REGMAP_BASE + 0x44}]
 
-set ID_MAGIC 0x1C0FFEE1
+set ID_MAGIC 0xC0FFEE01
 
 # STIMULUS bit positions -- must match regmap_conformance.mm.yml
 proc stim_word {status_val {sample_evt_trig 0} {error_evt_trig 0} {legacy_trig 0} \
