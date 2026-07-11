@@ -16,6 +16,12 @@ QSYS_FILE     = ../qsys/led_avmm_system.qsys
 QSYS_GEN_DIR  = ../qsys/led_avmm_system_gen
 SOPCINFO      = ../qsys/led_avmm_system.sopcinfo
 
+# Debug variant: uses led_avmm_system_debug.tcl which adds a JTAG-to-Avalon-MM
+# master for System Console register access (issue #36 Part D fabric plumbing).
+DEBUG_QSYS_TCL = ../qsys/led_avmm_system_debug.tcl
+DEBUG_DIR      = ../debug
+LED_CTRL_BASE  = 0x00010010
+
 BSP_DIR       = ../software/bsp
 APP_DIR       = ../software/app
 
@@ -25,7 +31,7 @@ DOCKER_IMAGE ?= cvsoc/quartus:23.1
 # Find yours with: usbipd.exe list  (look for "USB-Blaster")
 # Override with: make USBIPD_BUSID=<id> program-sof
 USBIPD       ?= usbipd.exe
-USBIPD_BUSID ?= 2-4
+USBIPD_BUSID ?= 8-3
 
 # JTAG chain device index: 1=HPS ARM DAP, 2=Cyclone V FPGA
 DEVICE_INDEX ?= 2
@@ -46,7 +52,9 @@ DOCKER_GUI = docker run --rm --user $$(id -u):$$(id -g) \
 
 .PHONY: all qsys project compile bsp app clean check_timing \
         program-sof download-elf terminal usb-windows usb-wsl \
-        quartus-gui platform-designer
+        quartus-gui platform-designer \
+        debug-qsys debug-build debug-program debug-read-all debug-write-led \
+        debug-dump debug-poll debug-console
 
 all:
 	docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
@@ -162,6 +170,106 @@ quartus-gui:
 #   Run 'make $(QSYS_FILE)' first if the .qsys file does not yet exist.
 platform-designer:
 	$(DOCKER_GUI) "$(DOCKER_CWD) && qsys-edit $(QSYS_FILE) 2>/dev/null || qsys-edit"
+
+# ── Debug variant: JTAG-to-Avalon-MM master + System Console targets ──────────
+# These targets build and exercise a debug variant of the board design that
+# includes an altera_jtag_avalon_master connected to led_ctrl.S_AVMM, enabling
+# register peek/poke via System Console without Nios II firmware.
+#
+# This is the hardware validation for ipcraft-vscode issue #36 Part B/D:
+# the SystemConsoleTransport (TypeScript) and debug_console.py (Python) both
+# talk to the JTAG master exposed by this bitstream.
+#
+# Quick start:
+#   make debug-build         # build the debug bitstream
+#   make debug-program       # program it to the FPGA
+#   make debug-read-all      # read all registers via System Console
+#   make debug-write-led VALUE=0xFF  # write LED_PATTERN and verify
+#   make debug-dump          # Python debug_console.py dump (all registers + fields)
+#   make debug-poll REG=EVENTS COUNT=10 INTERVAL=0.5  # poll a register
+
+# debug-qsys: Generate the .qsys from the debug variant TCL (adds JTAG master)
+debug-qsys:
+	$(DOCKER) "$(DOCKER_CWD) && cd ../qsys && qsys-script --script=led_avmm_system_debug.tcl"
+	$(DOCKER) "$(DOCKER_CWD) && qsys-generate $(QSYS_FILE) --synthesis=VHDL --output-directory=$(QSYS_GEN_DIR) \
+	  --search-path=/work/$(PROJECT_NAME)/qsys,\$$"
+
+# debug-build: Full build of the debug variant (qsys + project + compile)
+debug-build: debug-qsys
+	$(DOCKER) "$(DOCKER_CWD) && quartus_sh -t de10_nano_project.tcl && \
+	  quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME)"
+
+# debug-program: Program the debug variant bitstream to the FPGA
+debug-program: usb-wsl $(REVISION_NAME).sof
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
+	  -v /dev/bus/usb:/dev/bus/usb \
+	  -v $(REPO_ROOT):/work \
+	  $(DOCKER_IMAGE) \
+	  bash -c 'jtagd && sleep 5 && \
+	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
+
+# debug-read-all: Read all led_controller_avmm registers via System Console Tcl
+debug-read-all: usb-wsl
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
+	  -v /dev/bus/usb:/dev/bus/usb \
+	  -v $(REPO_ROOT):/work \
+	  $(DOCKER_IMAGE) \
+	  bash -c 'jtagd && sleep 5 && \
+	    printf "source /work/$(PROJECT_NAME)/debug/read_all_registers.tcl\n" | system-console --cli; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
+
+# debug-write-led: Write LED_PATTERN register and verify readback
+#   Usage: make debug-write-led VALUE=0xFF
+debug-write-led: usb-wsl
+	$(eval VAL := $(or $(VALUE),0xFF))
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
+	  -v /dev/bus/usb:/dev/bus/usb \
+	  -v $(REPO_ROOT):/work \
+	  $(DOCKER_IMAGE) \
+	  bash -c 'jtagd && sleep 5 && \
+	    printf "source /work/$(PROJECT_NAME)/debug/write_led_pattern.tcl\n" | system-console --cli; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
+
+# debug-dump: Python debug_console.py dump (all registers + field decode)
+debug-dump: usb-wsl
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
+	  -v /dev/bus/usb:/dev/bus/usb \
+	  -v $(REPO_ROOT):/work \
+	  -v /tmp:/tmp \
+	  $(DOCKER_IMAGE) \
+	  bash -c 'jtagd && sleep 5 && \
+	    python3 /work/$(PROJECT_NAME)/debug/debug_console.py \
+	      --base $(LED_CTRL_BASE) --timeout 60 dump; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
+
+# debug-poll: Poll a register repeatedly (Watch feature prototype)
+#   Usage: make debug-poll REG=EVENTS COUNT=10 INTERVAL=0.5
+debug-poll: usb-wsl
+	$(eval REG := $(or $(REG),EVENTS))
+	$(eval COUNT := $(or $(COUNT),10))
+	$(eval INTERVAL := $(or $(INTERVAL),0.5))
+	docker run --rm --user $$(id -u):$$(id -g) --privileged \
+	  -v /dev/bus/usb:/dev/bus/usb \
+	  -v $(REPO_ROOT):/work \
+	  -v /tmp:/tmp \
+	  $(DOCKER_IMAGE) \
+	  bash -c 'jtagd && sleep 5 && \
+	    python3 /work/$(PROJECT_NAME)/debug/debug_console.py \
+	      --base $(LED_CTRL_BASE) --timeout 60 poll $(REG) $(COUNT) $(INTERVAL); \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
+
+# debug-console: Interactive Python debug console (for manual exploration)
+debug-console: usb-wsl
+	docker run --rm --user $$(id -u):$$(id -g) -it --privileged \
+	  -v /dev/bus/usb:/dev/bus/usb \
+	  -v $(REPO_ROOT):/work \
+	  -v /tmp:/tmp \
+	  $(DOCKER_IMAGE) \
+	  bash -c 'jtagd && sleep 5 && \
+	    python3 /work/$(PROJECT_NAME)/debug/debug_console.py \
+	      --base $(LED_CTRL_BASE) --timeout 60 dump; \
+	    kill $$(pgrep jtagd) 2>/dev/null || true'
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 FILE_ENDINGS_FOR_REMOVAL = .rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt

@@ -85,7 +85,8 @@ generated entirely inside `_regs.vhd`; the core only drives the live level.
 ├── docs/
 │   ├── README.md                        ← this file
 │   ├── hardware_debug_process.md
-│   └── led_controller_avmm_registers.md
+│   ├── led_controller_avmm_registers.md
+│   └── systemconsole_implementation_plan.md  ← System Console plan for ipcraft-vscode #36
 ├── led_controller_avmm.ip.yml       ← hand-authored IPCraft spec
 ├── led_controller_avmm.mm.yml       ← hand-authored register map
 ├── rtl/                             ← IPCraft-generated (core.vhd hand-edited)
@@ -100,13 +101,19 @@ generated entirely inside `_regs.vhd`; the core only drives the live level.
 │   ├── led_controller_avmm_project.tcl
 │   ├── led_controller_avmm.sdc
 │   └── test.qsys                        ← minimal BFM validation system
+├── debug/                           ← System Console register debug (issue #36)
+│   ├── README.md                        ← debug usage + architecture
+│   ├── read_all_registers.tcl           ← Tcl: read all registers via JTAG master
+│   ├── write_led_pattern.tcl            ← Tcl: write LED_PATTERN + verify
+│   └── debug_console.py                 ← Python transport + driver (sentinel-framed)
 ├── hdl/
 │   └── de10_nano_top.vhd            ← VHDL top-level wrapper
 ├── qsys/
 │   ├── led_avmm_system.tcl          ← Platform Designer system script (qsys-script input)
+│   ├── led_avmm_system_debug.tcl    ← debug variant: adds JTAG-to-Avalon-MM master
 │   └── led_controller_avmm_hw.tcl   ← symlink -> ../altera/led_controller_avmm_hw.tcl
 ├── quartus/
-│   ├── Makefile                     ← full build orchestrator
+│   ├── Makefile                     ← full build orchestrator (incl. debug-* targets)
 │   ├── de10_nano_project.tcl
 │   ├── de10_nano_pin_assignments.tcl
 │   └── de10_nano.sdc
@@ -228,6 +235,46 @@ From here on, every step is cvsoc's own existing manual/scripted flow
 (`quartus_pgm`/`nios2-download`/`nios2-terminal`), the same as every other
 Nios II phase in this repo, requiring physical DE10-Nano + USB-Blaster
 access.
+
+## System Console register debug (without Nios II firmware)
+
+This project also includes a **debug variant** of the Platform Designer
+system (`qsys/led_avmm_system_debug.tcl`) that adds an
+`altera_jtag_avalon_master` — a JTAG-to-Avalon-MM bridge — connected to
+`led_ctrl.S_AVMM`. This allows reading and writing registers directly via
+Altera System Console over JTAG, **without downloading any Nios II
+firmware**.
+
+This is the hardware validation for
+[ipcraft-vscode issue #36](https://github.com/bleviet/ipcraft-vscode/issues/36),
+which proposes a `SystemConsoleTransport` in the VS Code extension's Memory
+Map editor Debug Mode. The full implementation plan is in
+[`docs/systemconsole_implementation_plan.md`](systemconsole_implementation_plan.md).
+
+```bash
+cd quartus
+
+# Build the debug variant (adds JTAG-to-Avalon-MM master)
+make debug-build
+
+# Program the FPGA
+make debug-program
+
+# Read all registers via System Console Tcl
+make debug-read-all
+
+# Write LED_PATTERN = 0xFF and verify readback
+make debug-write-led VALUE=0xFF
+
+# Python debug console: full register dump with field decode
+make debug-dump
+
+# Poll EVENTS register (watch the heartbeat toggle)
+make debug-poll REG=EVENTS COUNT=20 INTERVAL=0.5
+```
+
+See [`debug/README.md`](../debug/README.md) for the architecture diagram and
+direct Python/Tcl usage.
 
 After a successful `make all` (real board project in `quartus/`, distinct
 from the virtual-pin `altera/` project used for timing verification above):
