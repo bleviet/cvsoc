@@ -20,11 +20,17 @@
 PROJECT_DIR   := $(CURDIR)
 REPO_ROOT     := $(realpath ..)
 
+PROJECT_NAME  = 11_ethernet_hps_led
+
+QUARTUS_SUPPORTED ?= 23.1 25.1
+NEEDS_SOFTWARE_TOOLS ?= 1
+
+include ../common/make/quartus-version.mk
+
 # ── FPGA bitstream (reused from Phase 6 / 05_hps_led) ───────────────────────
 # Phase 6 converts the .sof; Phase 7 reuses it unchanged.
 PHASE6_RBF    := $(REPO_ROOT)/10_linux_led/de10_nano.rbf
 RBF_FILE      := $(PROJECT_DIR)/de10_nano.rbf
-DOCKER_IMAGE  ?= cvsoc/quartus:23.1
 
 # ── Buildroot ────────────────────────────────────────────────────────────────
 BUILDROOT_VERSION := 2024.11.1
@@ -136,32 +142,29 @@ sdcard: buildroot
 
 # ── Standalone cross-compile (Phase 7: raw protocol) ─────────────────────────
 # Useful for quick iterations: recompile and scp to the running board.
+# Runs in the cvsoc/tools:1.0 software-tools container (NEEDS_SOFTWARE_TOOLS=1).
 server-cross:
-	docker run --rm --user $$(id -u):$$(id -g) \
-	    -v $(REPO_ROOT):/work \
-	    $(DOCKER_IMAGE) \
-	    arm-linux-gnueabihf-gcc -O2 -Wall -Wextra \
-	        -o /work/11_ethernet_hps_led/software/led_server/led_server \
-	        /work/11_ethernet_hps_led/software/led_server/led_server.c
+	$(call SWTOOL, \
+	  arm-linux-gnueabihf-gcc -O2 -Wall -Wextra \
+	    -o software/led_server/led_server \
+	    software/led_server/led_server.c)
 	@echo "Binary: software/led_server/led_server"
 	@echo "  scp software/led_server/led_server root@<board-ip>:/usr/bin/"
 
 # ── Standalone cross-compile (Phase 7.5: protobuf server) ────────────────────
 # Cross-compiles led_server_pb using the nanopb runtime bundled in
 # software/led_server/nanopb/ (copied from nanopb-0.4.9.1).
-# Uses Docker (same cross-compiler as server-cross).
+# Uses the tools container (same cross-compiler as server-cross).
 server-pb-cross:
-	docker run --rm --user $$(id -u):$$(id -g) \
-	    -v $(REPO_ROOT):/work \
-	    $(DOCKER_IMAGE) \
-	    arm-linux-gnueabihf-gcc -O2 -Wall -Wextra \
-	        -I/work/11_ethernet_hps_led/software/led_server/nanopb \
-	        -o /work/11_ethernet_hps_led/software/led_server/led_server_pb \
-	        /work/11_ethernet_hps_led/software/led_server/led_server_pb.c \
-	        /work/11_ethernet_hps_led/software/led_server/led_command.pb.c \
-	        /work/11_ethernet_hps_led/software/led_server/nanopb/pb_encode.c \
-	        /work/11_ethernet_hps_led/software/led_server/nanopb/pb_decode.c \
-	        /work/11_ethernet_hps_led/software/led_server/nanopb/pb_common.c
+	$(call SWTOOL, \
+	  arm-linux-gnueabihf-gcc -O2 -Wall -Wextra \
+	    -I software/led_server/nanopb \
+	    -o software/led_server/led_server_pb \
+	    software/led_server/led_server_pb.c \
+	    software/led_server/led_command.pb.c \
+	    software/led_server/nanopb/pb_encode.c \
+	    software/led_server/nanopb/pb_decode.c \
+	    software/led_server/nanopb/pb_common.c)
 	@echo ""
 	@echo "Binary: software/led_server/led_server_pb"
 	@echo "Deploy to board (replace \$$BOARD with your board address):"
