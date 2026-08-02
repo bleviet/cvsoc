@@ -1,0 +1,34 @@
+# cvsoc/tools:1.0 — Software cross-toolchain container (no Quartus).
+#
+# Provides the ARM cross-compilers, debugger, and network tools required by
+# the HPS phases (05/07/09/10/11/14/15) independent of the Quartus version
+# used for synthesis. Ubuntu 22.04 matches the WSL2 host glibc.
+#
+# Build:
+#   docker build -t cvsoc/tools:1.0 -f common/docker/Dockerfile.tools common/docker/
+
+FROM ubuntu:22.04
+
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
+        gcc-arm-linux-gnueabihf \
+        binutils-arm-linux-gnueabihf \
+        libc6-dev-armhf-cross \
+        linux-libc-dev-armhf-cross \
+        gdb-multiarch \
+        openssh-client \
+        openocd \
+        python3 \
+        make \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/bin/gdb-multiarch /usr/local/bin/arm-none-eabi-gdb
+
+# Smoke-test: verify every binary is on PATH
+RUN arm-linux-gnueabihf-gcc  --version | head -1 && \
+    arm-linux-gnueabihf-size --version | head -1 && \
+    arm-none-eabi-gdb         --version | head -1 && \
+    scp --version 2>&1 | head -1 && \
+    openocd --version 2>&1 | head -1
+
+LABEL \
+    org.opencontainers.image.title="cvsoc/tools" \
+    org.opencontainers.image.description="Software cross-toolchains for bleviet/cvsoc HPS phases"
