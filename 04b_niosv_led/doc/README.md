@@ -30,7 +30,7 @@ flowchart LR
 | LED PIO                       | `0x00010010` | 16 B  |
 | JTAG UART                     | `0x00010100` | 8 B   |
 | System ID                     | `0x00010108` | 8 B   |
-| Timer / SW interrupt (mtime)  | `0x00010110` | 64 B  |
+| Timer / SW interrupt (mtime)  | `0x00010140` | 64 B  |
 | Debug module (dm_agent)       | `0x00100000` | 64 KB |
 
 The Nios V/m masters are Avalon-MM `data_manager` / `instruction_manager`; the

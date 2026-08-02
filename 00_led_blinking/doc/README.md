@@ -23,24 +23,31 @@ This is the first project in the cvsoc series. It makes all eight LEDs on the DE
 
 ## How to Build
 
-All Quartus tools run inside the `cvsoc/quartus:23.1` Docker container. From the repository root in WSL2:
+This is a **pure HDL design** — no software component — and it builds with **both** Quartus
+23.1 and 25.1. The `quartus/Makefile` includes the shared
+`common/make/quartus-version.mk` fragment, which auto-detects a local Quartus 25.1 install
+or falls back to the `cvsoc/quartus:23.1` Docker container. From the project's `quartus/`
+directory:
 
 ```bash
-# Build the bitstream
-docker run --rm -v $(pwd):/work cvsoc/quartus:23.1 \
-  bash -c "cd /work/00_led_blinking/quartus && make all"
+cd 00_led_blinking/quartus
+
+# Auto-detect: local 25.1 if installed, else Docker 23.1
+make all
+
+# Or force a specific version
+make QUARTUS_VERSION=25.1 all
+make QUARTUS_VERSION=23.1 all
 ```
 
-Or step by step:
+Step by step:
 
 ```bash
 # Create the Quartus project
-docker run --rm -v $(pwd):/work cvsoc/quartus:23.1 \
-  bash -c "cd /work/00_led_blinking/quartus && make project"
+make project
 
 # Compile (synthesis + fit + assemble + STA)
-docker run --rm -v $(pwd):/work cvsoc/quartus:23.1 \
-  bash -c "cd /work/00_led_blinking/quartus && make compile"
+make compile
 ```
 
 ## How to Program
@@ -63,4 +70,5 @@ All eight LEDs will blink at 1 Hz after programming succeeds.
 
 - Full tutorial: [`docs/tutorial_phase0_led_blinking.md`](../../docs/tutorial_phase0_led_blinking.md)
 - Docker environment: [`docs/tutorial_docker_dev_environment.md`](../../docs/tutorial_docker_dev_environment.md)
+- Multi-version Quartus: [`docs/tutorial_phase11_multi_version_quartus.md`](../../docs/tutorial_phase11_multi_version_quartus.md)
 
