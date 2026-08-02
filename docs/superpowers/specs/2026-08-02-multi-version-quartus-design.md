@@ -1,7 +1,12 @@
 # Multi-Version Quartus Support — Design
 
 **Date:** 2026-08-02
-**Status:** Approved for implementation
+**Status:** Implemented
+
+> Verification passed 2026-08-02 (Task 11 sweep): auto-detect picks local 25.1 for
+> `23.1 25.1` projects and Docker 23.1 for Nios II; full compiles pass for
+> 00/01 (25.1 local) and 04 (23.1 Docker); all four boards programmed successfully
+> (00/01/05 via 25.1, 04 via 23.1); unsupported-version guard aborts fast.
 
 ## Problem
 
