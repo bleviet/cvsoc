@@ -1,54 +1,36 @@
 # Makefile for the 06_nios2_interrupts Quartus project.
-# Orchestrates: Platform Designer generation → Quartus compile → BSP generation → app build.
-#
-# All steps run inside the cvsoc/quartus:23.1 Docker container.
-# Call any target directly from the WSL2 host — Docker is invoked automatically.
+# Nios II classic — supported only on Quartus 23.1 (Docker).
+# Orchestrates: Platform Designer → Quartus compile → BSP → app build.
 
 PROJECT_NAME  = 06_nios2_interrupts
 REVISION_NAME = de10_nano
 
-QSYS_TCL      = ../qsys/nios2_system.tcl
-QSYS_FILE     = ../qsys/nios2_system.qsys
-QSYS_GEN_DIR  = ../qsys/nios2_system_gen
-SOPCINFO      = ../qsys/nios2_system.sopcinfo
+QSYS_TCL     = ../qsys/nios2_system.tcl
+QSYS_FILE    = ../qsys/nios2_system.qsys
+QSYS_GEN_DIR = ../qsys/nios2_system_gen
+SOPCINFO     = ../qsys/nios2_system.sopcinfo
+BSP_DIR      = ../software/bsp
+APP_DIR      = ../software/app
 
-BSP_DIR       = ../software/bsp
-APP_DIR       = ../software/app
+QUARTUS_SUPPORTED ?= 23.1
+QUARTUS_DEFAULT   ?= 23.1
+NEEDS_SOFTWARE_TOOLS ?= 0
 
-DOCKER_IMAGE ?= cvsoc/quartus:23.1
+include ../../common/make/quartus-version.mk
 
-USBIPD       ?= usbipd.exe
-USBIPD_BUSID ?= 2-4
-
-# JTAG chain device index: 1=HPS ARM DAP, 2=Cyclone V FPGA
-DEVICE_INDEX ?= 2
+UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
 
 # Nios II GDB server port (nios2-gdb-server listens here; GDB clients connect to it)
 GDB_PORT     ?= 2345
 
-REPO_ROOT  = $(realpath ../..)
-UNAME_SHIM = $(REPO_ROOT)/common/docker/uname_shim.sh
-DOCKER     = docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c
-DOCKER_CWD = cd /work/$(PROJECT_NAME)/quartus
-# GUI helper: adds X11/WSLg display forwarding for Quartus GUI targets.
-DOCKER_GUI = docker run --rm --user $$(id -u):$$(id -g) \
-  -e DISPLAY=$$DISPLAY \
-  -v /tmp/.X11-unix:/tmp/.X11-unix \
-  -v /mnt/wslg:/mnt/wslg \
-  -e WAYLAND_DISPLAY=$$WAYLAND_DISPLAY \
-  -e XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir \
-  -v $(REPO_ROOT):/work \
-  $(DOCKER_IMAGE) bash -c
-
-.PHONY: all qsys project compile bsp app clean check_timing \
-        program-sof download-elf terminal usb-windows usb-wsl \
-        close-gdb-port gdb-server gdb-tui \
-        quartus-gui platform-designer
+.PHONY: all qsys project compile bsp app check_timing \
+        program-sof download-elf terminal usb-wsl usb-windows \
+        close-gdb-port gdb-server gdb-tui clean
 
 all:
-	docker run --rm --user $$(id -u):$$(id -g) -v $(REPO_ROOT):/work $(DOCKER_IMAGE) bash -c '\
-	  cd /work/$(PROJECT_NAME)/qsys && qsys-script --script=nios2_system.tcl && \
-	  cd /work/$(PROJECT_NAME)/quartus && \
+	$(call QTOOL, \
+	  cd ../qsys && qsys-script --script=nios2_system.tcl && \
+	  cd ../quartus && \
 	  qsys-generate ../qsys/nios2_system.qsys --synthesis=VHDL --output-directory=../qsys/nios2_system_gen && \
 	  quartus_sh -t de10_nano_project.tcl && \
 	  quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME) && \
@@ -57,76 +39,50 @@ all:
 	    --settings ../software/bsp/settings.bsp --bsp-dir ../software/bsp \
 	    --script /opt/intelFPGA/nios2eds/sdk2/bin/bsp-set-defaults.tcl --cpu-name nios2 && \
 	  make -C ../software/bsp WINDOWS_EXE= && \
-	  make -C ../software/app'
+	  make -C ../software/app)
 
-# ── Step 1: generate the .qsys file from the TCL script ──────────────────────
 $(QSYS_FILE): $(QSYS_TCL)
-	$(DOCKER) "$(DOCKER_CWD) && cd ../qsys && qsys-script --script=nios2_system.tcl"
+	$(call QTOOL,cd ../qsys && qsys-script --script=nios2_system.tcl)
 
 qsys: $(QSYS_FILE)
-	$(DOCKER) "$(DOCKER_CWD) && qsys-generate $(QSYS_FILE) --synthesis=VHDL --output-directory=$(QSYS_GEN_DIR)"
+	$(call QTOOL,qsys-generate $(QSYS_FILE) --synthesis=VHDL --output-directory=$(QSYS_GEN_DIR))
 
-# ── Step 2: create and compile the Quartus project ───────────────────────────
 project: $(QSYS_GEN_DIR)/synthesis/nios2_system.qip
-	$(DOCKER) "$(DOCKER_CWD) && quartus_sh -t de10_nano_project.tcl"
+	$(call QTOOL,quartus_sh -t de10_nano_project.tcl)
 
 compile:
-	$(DOCKER) "$(DOCKER_CWD) && quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME)"
+	$(call QTOOL,quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME))
 
-# ── Step 3: generate the Nios II HAL BSP ─────────────────────────────────────
 BSP_DEFAULT_TCL = /opt/intelFPGA/nios2eds/sdk2/bin/bsp-set-defaults.tcl
 
 bsp: $(SOPCINFO)
-	$(DOCKER) "$(DOCKER_CWD) && \
+	$(call QTOOL, \
 	  mkdir -p $(BSP_DIR) && \
 	  nios2-bsp-create-settings \
-	    --sopc $(SOPCINFO) \
-	    --type hal \
-	    --settings $(BSP_DIR)/settings.bsp \
-	    --bsp-dir $(BSP_DIR) \
-	    --script $(BSP_DEFAULT_TCL) \
-	    --cpu-name nios2 && \
-	  make -C $(BSP_DIR) WINDOWS_EXE="
+	    --sopc $(SOPCINFO) --type hal \
+	    --settings $(BSP_DIR)/settings.bsp --bsp-dir $(BSP_DIR) \
+	    --script $(BSP_DEFAULT_TCL) --cpu-name nios2 && \
+	  make -C $(BSP_DIR) WINDOWS_EXE=)
 
-# ── Step 4: build the C application ──────────────────────────────────────────
 app: bsp
-	$(DOCKER) "$(DOCKER_CWD) && make -C $(APP_DIR)"
+	$(call QTOOL,make -C $(APP_DIR))
 
-# ── Timing check ──────────────────────────────────────────────────────────────
 check_timing:
-	$(DOCKER) "$(DOCKER_CWD) && python /work/00_led_blinking/scripts/check_timing_slacks.py $(REVISION_NAME).sta.rpt 2>/dev/null || true"
+	$(call QTOOL,python3 $(QROOT)/00_led_blinking/scripts/check_timing_slacks.py \
+	  $(REVISION_NAME).sta.rpt 2>/dev/null || true)
 
-# ── Programming & debug targets ──────────────────────────────────────────────
-# usb-wsl: Connects the USB-Blaster to WSL2 so Docker can reach it.
-usb-wsl:
-	@echo "Connecting USB-Blaster (busid $(USBIPD_BUSID)) to WSL2..."
-	$(USBIPD) attach --wsl --busid $(USBIPD_BUSID) 2>/dev/null || true
-	@sleep 1
-
-# usb-windows: Returns the USB-Blaster to Windows (Windows fallback workflow only).
-#   See docs/howto_windows_wsl2_programmer.md for the Windows programmer workflow.
-usb-windows:
-	@echo "Detaching USB-Blaster (busid $(USBIPD_BUSID)) from WSL2 → Windows..."
-	$(USBIPD) detach --busid $(USBIPD_BUSID) 2>/dev/null || true
-	@sleep 1
-
-# program-sof: Programs the FPGA bitstream via JTAG entirely from WSL2.
-#   Starts jtagd inside the container then calls quartus_pgm.
 program-sof: usb-wsl $(REVISION_NAME).sof
-	docker run --rm --user $$(id -u):$$(id -g) --privileged \
-	  -v /dev/bus/usb:/dev/bus/usb \
-	  -v $(REPO_ROOT):/work \
-	  $(DOCKER_IMAGE) \
-	  bash -c 'jtagd && sleep 2 && \
-	    quartus_pgm -m jtag -o "p;/work/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"; \
-	    kill $$(pgrep jtagd) 2>/dev/null || true'
+	$(QUARTUS_PROGRAM)
 
+# download-elf / terminal / gdb-server need the uname shim and
+# --privileged / -it mounts that QTOOL does not provide; they are written
+# as raw docker run commands.
 download-elf: usb-wsl $(APP_DIR)/nios2_interrupts.elf
 	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  $(DOCKER_IMAGE) \
-	  nios2-download -g /work/06_nios2_interrupts/software/app/nios2_interrupts.elf
+	  nios2-download -g /work/$(PROJECT_NAME)/software/app/nios2_interrupts.elf
 
 terminal: usb-wsl
 	docker run --rm --user $$(id -u):$$(id -g) -it --privileged \
@@ -150,7 +106,6 @@ close-gdb-port:
 
 # Starts nios2-gdb-server and keeps it running so a GDB client can connect.
 # Run this in one terminal, then run 'make gdb-tui' in a second terminal.
-#
 # The server resets the Nios II CPU and waits for a connection on
 # localhost:$(GDB_PORT).  --tcppersist keeps it alive after GDB disconnects.
 gdb-server: close-gdb-port usb-wsl
@@ -169,13 +124,6 @@ gdb-server: close-gdb-port usb-wsl
 # ── GDB TUI session ───────────────────────────────────────────────────────────
 # Opens nios2-elf-gdb in TUI mode (source + assembly split view).
 # Requires gdb-server to be running first (make gdb-server in another terminal).
-#
-# TUI key bindings:
-#   Ctrl-X a     toggle TUI on/off
-#   Ctrl-X 1     source window only
-#   Ctrl-X 2     source + assembly windows
-#   Ctrl-L       refresh display after output noise
-#   Arrow keys   scroll the active window
 gdb-tui: $(APP_DIR)/nios2_interrupts.elf
 	docker run --rm -it \
 	  --network host \
@@ -184,28 +132,11 @@ gdb-tui: $(APP_DIR)/nios2_interrupts.elf
 	  $(DOCKER_IMAGE) \
 	  nios2-elf-gdb -tui \
 	    -ex "set pagination off" \
-	    -x /work/06_nios2_interrupts/scripts/nios2_interrupts.gdb \
-	    /work/06_nios2_interrupts/software/app/nios2_interrupts.elf
-
-# ── GUI targets ───────────────────────────────────────────────────────────────
-# Opens a GUI tool inside Docker with X11 forwarding to the WSL2 host.
-# Requires WSLg (Windows 11) or a running X server (DISPLAY must be set).
-
-# quartus-gui: Opens Quartus Prime with the project loaded.
-#   Run 'make project' first if de10_nano.qpf does not yet exist.
-quartus-gui:
-	$(DOCKER_GUI) "$(DOCKER_CWD) && quartus $(PROJECT_NAME).qpf 2>/dev/null || quartus"
-
-# platform-designer: Opens Platform Designer with the .qsys system file.
-#   Run 'make $(QSYS_FILE)' first if the .qsys file does not yet exist.
-platform-designer:
-	$(DOCKER_GUI) "$(DOCKER_CWD) && qsys-edit $(QSYS_FILE) 2>/dev/null || qsys-edit"
-
-# ── Clean ─────────────────────────────────────────────────────────────────────
-FILE_ENDINGS_FOR_REMOVAL = .rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt
+	    -x /work/$(PROJECT_NAME)/scripts/nios2_interrupts.gdb \
+	    /work/$(PROJECT_NAME)/software/app/nios2_interrupts.elf
 
 clean:
-	$(DOCKER) "$(DOCKER_CWD) && \
+	$(call QTOOL, \
 	  rm -rf db incremental_db output_files && \
 	  rm -rf $(QSYS_GEN_DIR) $(QSYS_FILE) && \
 	  rm -rf $(BSP_DIR) && \
@@ -213,4 +144,4 @@ clean:
 	  find . -maxdepth 1 \( -name '*.rpt' -o -name '*.summary' -o -name '*.qsf' \
 	    -o -name '*.qpf' -o -name '*.qws' -o -name '*.done' -o -name '*.smsg' \
 	    -o -name '*.jdi' -o -name '*.pin' -o -name '*.sld' -o -name '*.sof' \
-	    -o -name 'dump.txt' \) -delete"
+	    -o -name 'dump.txt' \) -delete)
