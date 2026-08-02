@@ -7,22 +7,43 @@
 # Usage (from repo root):
 #   cd 10_linux_led && make all
 #
-# The FPGA bitstream conversion runs inside the cvsoc/quartus:23.1 Docker
-# container.  The Buildroot build runs on the host (requires ~4 GB disk,
+# The FPGA bitstream conversion runs via the shared quartus-version.mk
+# fragment (auto-detected local Quartus, else the cvsoc/quartus:<ver> Docker
+# container).  The Buildroot build runs on the host (requires ~4 GB disk,
 # ~30 min on first build).
 #
 # Prerequisites:
-#   - Docker (for quartus_cpf)
+#   - Local Quartus install or Docker (for quartus_cpf)
 #   - wget, tar, make, gcc (for Buildroot host tools)
 #   - Internet access (Buildroot downloads toolchain, kernel, U-Boot sources)
 
 PROJECT_DIR   := $(CURDIR)
 REPO_ROOT     := $(realpath ..)
 
+PROJECT_NAME  = 10_linux_led
+
+QUARTUS_SUPPORTED ?= 23.1 25.1
+NEEDS_SOFTWARE_TOOLS ?= 0
+
+include ../common/make/quartus-version.mk
+
+# Root-level project (no quartus/ subdir): QTOOL default-cds into
+# $(PROJECT_NAME)/quartus, which does not exist here.  Override QTOOL to cd
+# into the project root instead (QTOOL command strings still cd explicitly).
+ifeq ($(QUARTUS_RUNNER),local)
+QTOOL = cd $(QROOT)/$(PROJECT_NAME) && \
+        export PATH="$(QUARTUS_BIN):$(QUARTUS_HOME)/quartus/sopc_builder/bin:$(QUARTUS_HOME)/nios2eds/bin:$(QUARTUS_HOME)/niosv/bin:$$PATH" && \
+        $(1)
+else
+QTOOL = docker run --rm --user $$(id -u):$$(id -g) \
+        -v $(REPO_ROOT):/work \
+        $(DOCKER_IMAGE) \
+        bash -c '$(1)'
+endif
+
 # ── FPGA bitstream (reused from 05_hps_led) ──────────────────────────────────
 SOF_FILE      := $(REPO_ROOT)/05_hps_led/quartus/de10_nano.sof
 RBF_FILE      := $(PROJECT_DIR)/de10_nano.rbf
-DOCKER_IMAGE  ?= cvsoc/quartus:23.1
 
 # ── Buildroot ─────────────────────────────────────────────────────────────────
 BUILDROOT_VERSION := 2024.11.1
@@ -56,8 +77,9 @@ help:
 	@echo "  sudo dd if=$(SDCARD_IMG) of=/dev/sdX bs=4M status=progress"
 
 # ── FPGA bitstream conversion (.sof → .rbf) ──────────────────────────────────
-# Runs quartus_cpf inside Docker to convert the .sof bitstream from 05_hps_led
-# into a Raw Binary File suitable for Linux FPGA Manager.
+# Runs quartus_cpf inside the Quartus context (local or Docker via the shared
+# fragment) to convert the .sof bitstream from 05_hps_led into a Raw Binary
+# File suitable for Linux FPGA Manager.
 rbf: $(RBF_FILE)
 
 $(SOF_FILE):
@@ -67,11 +89,10 @@ $(SOF_FILE):
 	$(MAKE) -C $(REPO_ROOT)/05_hps_led/quartus all
 
 $(RBF_FILE): $(SOF_FILE) scripts/convert_sof_to_rbf.sh
-	docker run --rm --user $$(id -u):$$(id -g) \
-	  -v $(REPO_ROOT):/work \
-	  $(DOCKER_IMAGE) \
-	  bash -c "cd /work/10_linux_led && bash scripts/convert_sof_to_rbf.sh \
-	           /work/05_hps_led/quartus/de10_nano.sof /work/10_linux_led/de10_nano.rbf"
+	$(call QTOOL, \
+	  cd $(QROOT)/10_linux_led && \
+	  bash scripts/convert_sof_to_rbf.sh \
+	    $(QROOT)/05_hps_led/quartus/de10_nano.sof $(QROOT)/10_linux_led/de10_nano.rbf)
 	@echo "FPGA bitstream: $(RBF_FILE)"
 
 # ── Buildroot download ────────────────────────────────────────────────────────

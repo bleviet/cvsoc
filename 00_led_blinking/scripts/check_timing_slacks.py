@@ -25,12 +25,12 @@ with open(input_file, 'r') as file:
     # Check if there are negative slacks
     if setup_slack < 0 or hold_slack < 0:
         # Print the text in red to emphasize
-        print(f'{RED}Negative slacks found!{RESET}')
+        print('{0}Negative slacks found!{1}'.format(RED, RESET))
         for line in content.split('\n'):
             if 'slack is -' in line.lower():
-                print(f'{RED}{line}{RESET}')
+                print('{0}{1}{2}'.format(RED, line, RESET))
     else:
         # Print the information in green for positive slacks
-        print(f'{GREEN}Timing clean.{RESET}')
-        print(f'Worst-case setup slack: {setup_slack}')
-        print(f'Worst-case hold slack: {hold_slack}')
+        print('{0}Timing clean.{1}'.format(GREEN, RESET))
+        print('Worst-case setup slack: {0}'.format(setup_slack))
+        print('Worst-case hold slack: {0}'.format(hold_slack))

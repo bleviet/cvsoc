@@ -11,9 +11,18 @@
 By the end of this tutorial you will have:
 
 - A clear understanding of **why the projects in this repository use Docker**
-- A local Docker image named `cvsoc/quartus:23.1` that contains **every toolchain needed by all six project phases** — no extra installation steps required
+- A local Docker image named `cvsoc/quartus:23.1` that contains the **Quartus 23.1 toolchain** — no extra installation steps required
 - A working mental model of **how the upstream `raetro/quartus:23.1` image is structured** and how to extend it
-- Verified that all **ARM and Nios II cross-compilers produce correct output** inside the new container
+- Verified that the **Nios II compiler and Quartus tools** produce correct output inside the new container
+
+> **Note (multi-version Quartus):** the repository now runs Quartus **per version** — 23.1
+> via this Docker image, 25.1 via a local install — selected by the shared
+> `common/make/quartus-version.mk` fragment. The **software** toolchain (ARM cross-gcc,
+> GDB, `scp`, OpenOCD) is now also provided by a separate, Quartus-independent image
+> (`cvsoc/tools:1.0`); this image still carries those tools too. See the section
+> [Multi-version Quartus and the software-tools container](#multi-version-quartus-and-the-software-tools-container)
+> below and the dedicated tutorial
+> [`tutorial_phase11_multi_version_quartus.md`](tutorial_phase11_multi_version_quartus.md).
 
 ---
 
@@ -335,6 +344,54 @@ RUN echo "deb http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT} stret
 ```
 
 Rebuild with the same `docker build` command. Because Docker layer caching is content-addressed, only the changed and subsequent layers are rebuilt.
+
+---
+
+## Multi-version Quartus and the software-tools container
+
+This tutorial built `cvsoc/quartus:23.1` with the ARM cross-compiler baked in. The
+repository has since evolved: **Quartus now runs per-version**, and the software tools are
+now also provided by their own slim container.
+
+### Quartus per-version
+
+Every project Makefile includes the shared fragment `common/make/quartus-version.mk`,
+which resolves the effective version per project:
+
+1. `QUARTUS_VERSION` (env/make override) — must be in the project's `QUARTUS_SUPPORTED`.
+2. A local probe (`common/scripts/detect-quartus.sh`) over the supported versions.
+3. A Docker fallback (`QUARTUS_DEFAULT`, i.e. this `cvsoc/quartus:23.1` image).
+
+Quartus **23.1 runs only via Docker** (`cvsoc/quartus:23.1`); Quartus **25.1 runs only from
+a local install** at `$HOME/tools/altera_lite/25.1std`. The Docker fallback is used when no
+local install matches. See [`tutorial_phase11_multi_version_quartus.md`](tutorial_phase11_multi_version_quartus.md)
+for the full explanation, including how to add a new Quartus version.
+
+### `cvsoc/tools:1.0` — the software-tools container
+
+The ARM cross-compiler, debugger, and network tools baked into `cvsoc/quartus:23.1` are now
+**also** provided by a separate, Quartus-independent image built from
+`common/docker/Dockerfile.tools`:
+
+```bash
+docker build -t cvsoc/tools:1.0 -f common/docker/Dockerfile.tools common/docker/
+```
+
+It is a slim Ubuntu 22.04 image (no Quartus at all) containing the ARM cross-toolchain
+(`arm-linux-gnueabihf-gcc`/`objcopy`/`size`), `gdb-multiarch` (symlinked as
+`arm-none-eabi-gdb`), `openssh-client` (`scp`), `openocd`, `python3`, and `make`.
+HPS projects (`05/07/09/14/15` and `11`) build their ARM apps in it via the fragment's
+`SWTOOL` macro:
+
+```make
+app:
+	$(call SWTOOL,make -C software/app CC=$(ARM_CC))
+```
+
+Keeping the software tools in a separate image means the ARM toolchain is identical whether
+the FPGA bitstream is synthesized with local 25.1 or Docker 23.1 — and an ARM-only build can
+use the slim `cvsoc/tools:1.0` image without pulling the fat Quartus one (which still
+carries the same tools for the older flows).
 
 ---
 

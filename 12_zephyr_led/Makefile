@@ -22,6 +22,14 @@
 
 PROJECT_DIR   := $(CURDIR)
 REPO_ROOT     := $(realpath ..)
+
+PROJECT_NAME  = 12_zephyr_led
+
+QUARTUS_SUPPORTED ?= 23.1 25.1
+NEEDS_SOFTWARE_TOOLS ?= 0
+
+include ../common/make/quartus-version.mk
+
 PHASE6_SPL    := $(REPO_ROOT)/10_linux_led/buildroot-2024.11.1/output/build/uboot-2024.07/spl/u-boot-spl
 # west places .west/ at the project root (12_zephyr_led/).
 # zephyr/ is a sibling of app/ inside this directory.

@@ -96,11 +96,20 @@ The 64 KB OCRAM is used for code, data, and two ARM exception-mode stacks:
 
 ## Building
 
+All steps are driven from the project's `quartus/` directory. The Makefile includes the
+shared `common/make/quartus-version.mk` fragment, which auto-detects a local Quartus 25.1
+install or falls back to the `cvsoc/quartus:23.1` Docker container. The ARM app is built in
+the `cvsoc/tools:1.0` container. No GUI tool is required.
+
 ```bash
-docker run --rm \
-  -v /path/to/cvsoc:/work \
-  cvsoc/quartus:23.1 \
-  bash -c "cd /work/07_hps_interrupts/quartus && make all"
+cd 07_hps_interrupts/quartus
+
+# Auto-detect: local 25.1 if installed, else Docker 23.1
+make all
+
+# Or force a specific version
+make QUARTUS_VERSION=25.1 all
+make QUARTUS_VERSION=23.1 all
 ```
 
 | Step | Make target  | Tool                        | Output                        |
@@ -186,12 +195,20 @@ is complete and the interrupt line can be deactivated.
 
 ## Programming the board
 
+After a successful build, attach the USB-Blaster to WSL2 once, then program from the
+project's `quartus/` directory:
+
 ```bash
+cd 07_hps_interrupts/quartus
+
+# Attach USB-Blaster (replace 2-4 with your bus ID)
+make usb-wsl USBIPD_BUSID=2-4
+
 # Program FPGA (JTAG, not persistent)
-quartus_pgm -m jtag -o "p;output_files/07_hps_interrupts.sof"
+make program-sof USBIPD_BUSID=2-4
 
 # Download ELF to OCRAM and run
-make download-elf
+make download-elf USBIPD_BUSID=2-4
 ```
 
 ## Concepts covered

@@ -5,7 +5,25 @@
 
 PROJECT_NAME := 13_secure_boot
 REPO_ROOT    := $(realpath ..)
-DOCKER_IMAGE := cvsoc/quartus:23.1
+
+QUARTUS_SUPPORTED ?= 23.1 25.1
+NEEDS_SOFTWARE_TOOLS ?= 0
+
+include ../common/make/quartus-version.mk
+
+# Root-level project (no quartus/ subdir): QTOOL default-cds into
+# $(PROJECT_NAME)/quartus, which does not exist here.  Override QTOOL to cd
+# into the project root instead (QTOOL command strings still cd explicitly).
+ifeq ($(QUARTUS_RUNNER),local)
+QTOOL = cd $(QROOT)/$(PROJECT_NAME) && \
+        export PATH="$(QUARTUS_BIN):$(QUARTUS_HOME)/quartus/sopc_builder/bin:$(QUARTUS_HOME)/nios2eds/bin:$(QUARTUS_HOME)/niosv/bin:$$PATH" && \
+        $(1)
+else
+QTOOL = docker run --rm --user $$(id -u):$$(id -g) \
+        -v $(REPO_ROOT):/work \
+        $(DOCKER_IMAGE) \
+        bash -c '$(1)'
+endif
 
 # Use the Phase 7/6 bitstream as our input
 INPUT_SOF    := $(REPO_ROOT)/05_hps_led/quartus/de10_nano.sof
@@ -28,7 +46,8 @@ help:
 	@echo "  make all       — Run all key generation, encryption, and signing"
 	@echo "  make clean     — Delete generated keys, encrypted bitstreams, and .itb"
 	@echo ""
-	@echo "Note: The encryption step runs inside the cvsoc/quartus:23.1 Docker container."
+	@echo "Note: The encryption step runs in the Quartus context (local install or"
+	@echo "      the cvsoc/quartus:<ver> Docker container)."
 	@echo "      The FIT signing step runs inside a generic ubuntu:22.04 container."
 
 all: keys encrypt rsa_keys sign_fit
@@ -41,7 +60,9 @@ $(KEY_FILE):
 	@bash scripts/generate_keys.sh $(KEY_FILE) $(KEY_ID)
 
 # ── 2. Bitstream Encryption (FPGA) ────────────────────────────────────────────
-# Depends on the .sof from Phase 3 being compiled
+# Depends on the .sof from Phase 3 being compiled.
+# Runs quartus_cpf in the Quartus context (local or Docker via the shared
+# fragment).
 $(INPUT_SOF):
 	@echo "═══════════════════════════════════════════════════════════════"
 	@echo "  Building missing dependency: 05_hps_led FPGA bitstream (.sof)"
@@ -51,11 +72,10 @@ $(INPUT_SOF):
 encrypt: $(OUTPUT_RBF)
 
 $(OUTPUT_RBF): $(KEY_FILE) $(INPUT_SOF) scripts/encrypt_bitstream.sh
-	@docker run --rm --user $$(id -u):$$(id -g) \
-	  -v $(REPO_ROOT):/work \
-	  $(DOCKER_IMAGE) \
-	  bash -c "cd /work/13_secure_boot && bash scripts/encrypt_bitstream.sh \
-	           $(KEY_FILE) $(KEY_ID) /work/05_hps_led/quartus/de10_nano.sof $(OUTPUT_RBF)"
+	$(call QTOOL, \
+	  cd $(QROOT)/13_secure_boot && \
+	  bash scripts/encrypt_bitstream.sh \
+	    $(KEY_FILE) $(KEY_ID) $(QROOT)/05_hps_led/quartus/de10_nano.sof $(OUTPUT_RBF))
 
 # ── 3. RSA Key Generation (Firmware Signing) ──────────────────────────────────
 rsa_keys: $(RSA_KEYS_DIR)/dev_key.pub

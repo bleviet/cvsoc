@@ -11,6 +11,7 @@
 **/*.pin
 **/*.sld
 **/*.sof
+**/*.qdf
 **/*_dump.txt
 
 # Qsys / Platform Designer
