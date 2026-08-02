@@ -18,10 +18,6 @@ QUARTUS_SUPPORTED ?= 23.1 25.1
 QUARTUS_DEFAULT   ?= 23.1
 NEEDS_SOFTWARE_TOOLS ?= 1
 
-# Debug/download targets keep running in the 23.1 container (Altera openocd
-# with the uname shim), regardless of the effective QUARTUS_VERSION.
-DOCKER_IMAGE ?= cvsoc/quartus:23.1
-
 include ../../common/make/quartus-version.mk
 
 HPS_IP   ?= 192.168.1.100
@@ -29,6 +25,11 @@ HPS_USER ?= root
 
 UNAME_SHIM  = $(REPO_ROOT)/common/docker/uname_shim.sh
 OPENOCD_CFG = ../scripts/de10_nano_hps.cfg
+
+# Debug/download targets always run in the 23.1 container: only its Altera
+# openocd (with the uname shim) supports the DE10-Nano USB-Blaster II, and they
+# run via docker regardless of the effective QUARTUS_RUNNER.
+DEBUG_IMAGE ?= cvsoc/quartus:23.1
 
 .PHONY: all qsys patch-oct project compile app check_timing \
         program-sof download-elf deploy-elf usb-wsl usb-windows clean
@@ -99,7 +100,7 @@ download-elf: usb-wsl $(APP_DIR)/hps_interrupts.elf
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  -v $(realpath $(OPENOCD_CFG)):/tmp/de10_nano_hps.cfg:ro \
-	  $(DOCKER_IMAGE) \
+	  $(DEBUG_IMAGE) \
 	  bash -c '\
 	    /opt/intelFPGA/quartus/bin/jtagd && sleep 2 && \
 	    /opt/intelFPGA/quartus/bin/openocd \

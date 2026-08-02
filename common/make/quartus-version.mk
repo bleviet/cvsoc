@@ -85,6 +85,9 @@ ifeq ($(QUARTUS_RUNNER),local)
 else
   # Docker: run inside the versioned Quartus container, workspace at /work.
   DOCKER_IMAGE ?= cvsoc/quartus:$(QUARTUS_VERSION)
+  ifneq ($(strip $(QUARTUS_VERSION)),$(strip $(QUARTUS_DEFAULT)))
+    $(warning Quartus $(QUARTUS_VERSION) not found locally; falling back to Docker image $(DOCKER_IMAGE))
+  endif
   QTOOL = docker run --rm --user $$(id -u):$$(id -g) \
           -v $(REPO_ROOT):/work \
           $(DOCKER_IMAGE) \
