@@ -193,6 +193,11 @@ git commit -m "feat(common): add cvsoc/tools:1.0 software toolchain Dockerfile"
 #   QUARTUS_BIN        dir containing quartus_sh / quartus_map etc.
 #   QSYS_TOOL          qsys-script/qsys-generate wrapper (Platform Designer)
 #   NIOS_TOOL          Nios EDS wrapper (nios2-bsp / niosv-bsp per version)
+#   QROOT              repo root path as seen by the executing context:
+#                      $(REPO_ROOT) in local mode, /work in Docker mode.
+#                      Use $(QROOT)/... INSIDE QTOOL/SWTOOL command strings.
+#                      Use $(REPO_ROOT)/... only for host-side references
+#                      (docker -v mounts, scp, uname shim paths).
 #   QTOOL              $(call QTOOL,cmd)  run a Quartus tool
 #   SWTOOL             $(call SWTOOL,cmd) run a software tool in the tools container
 #   QUARTUS_PROGRAM    JTAG-program the .sof (recipe)
@@ -238,10 +243,17 @@ else
   QUARTUS_RUNNER := docker
 endif
 
+# ── QROOT: repo root as seen by the executing context ─────────────────────────
+ifeq ($(QUARTUS_RUNNER),local)
+  QROOT := $(REPO_ROOT)
+else
+  QROOT := /work
+endif
+
 # ── QTOOL: run a Quartus toolchain command in the project's quartus dir ──────
 ifeq ($(QUARTUS_RUNNER),local)
   # Local: prepend the install's bin dirs to PATH and run directly.
-  QTOOL = cd $(REPO_ROOT)/$(PROJECT_NAME)/quartus && \
+  QTOOL = cd $(QROOT)/$(PROJECT_NAME)/quartus && \
           PATH="$(QUARTUS_BIN):$(QUARTUS_HOME)/quartus/sopc_builder/bin:$(QUARTUS_HOME)/nios2eds/bin:$(QUARTUS_HOME)/niosv/bin:$$PATH" $(1)
 else
   # Docker: run inside the versioned Quartus container, workspace at /work.
@@ -373,7 +385,7 @@ all:
 	$(call QTOOL, \
 	  quartus_sh -t de10_nano_project.tcl && \
 	  quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME) && \
-	  python3 $(REPO_ROOT)/00_led_blinking/scripts/check_timing_slacks.py \
+	  python3 $(QROOT)/00_led_blinking/scripts/check_timing_slacks.py \
 	    $(REVISION_NAME).sta.rpt 2>/dev/null || true)
 
 project:
@@ -383,7 +395,7 @@ compile:
 	$(call QTOOL,quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME))
 
 check_timing:
-	$(call QTOOL,python3 $(REPO_ROOT)/00_led_blinking/scripts/check_timing_slacks.py \
+	$(call QTOOL,python3 $(QROOT)/00_led_blinking/scripts/check_timing_slacks.py \
 	  $(REVISION_NAME).sta.rpt 2>/dev/null || true)
 
 program-sof: usb-wsl $(REVISION_NAME).sof
@@ -394,7 +406,7 @@ clean:
 	rm -f $(foreach ENDING,.rpt .summary .qsf .qpf .qws .done .smsg .jdi .pin .sld .sof dump.txt,$(wildcard *$(ENDING)))
 ```
 
-> `$(REPO_ROOT)` resolves to the host repo path in local mode and to `/work` inside the Docker container (the repo is mounted at `/work`), so `python3 $(REPO_ROOT)/...` works in both runners.
+> `$(QROOT)` resolves to the host repo path in local mode and to `/work` inside the Docker container (the repo is mounted at `/work`), so `python3 $(QROOT)/...` works in both runners.
 
 - [ ] **Step 2: Verify compile with local 25.1**
 
@@ -512,7 +524,7 @@ app: bsp
 	$(call QTOOL,make -C $(APP_DIR))
 
 check_timing:
-	$(call QTOOL,python3 $(REPO_ROOT)/00_led_blinking/scripts/check_timing_slacks.py \
+	$(call QTOOL,python3 $(QROOT)/00_led_blinking/scripts/check_timing_slacks.py \
 	  $(REVISION_NAME).sta.rpt 2>/dev/null || true)
 
 program-sof: usb-wsl $(REVISION_NAME).sof
@@ -630,7 +642,7 @@ all:
 	  cd ../qsys && qsys-script --script=hps_system.tcl && \
 	  cd ../quartus && \
 	  qsys-generate ../qsys/hps_system.qsys --synthesis=VERILOG && \
-	  python3 $(REPO_ROOT)/05_hps_led/scripts/patch_oct.py \
+	  python3 $(QROOT)/05_hps_led/scripts/patch_oct.py \
 	    ../qsys/hps_system/synthesis/submodules/altdq_dqs2_acv_connect_to_hard_phy_cyclonev.sv && \
 	  quartus_sh -t de10_nano_project.tcl && \
 	  quartus_map --read_settings_files=on --write_settings_files=off $(PROJECT_NAME) -c $(REVISION_NAME) && \
@@ -647,11 +659,11 @@ $(QSYS_FILE): $(QSYS_TCL)
 qsys: $(QSYS_FILE)
 	$(call QTOOL, \
 	  qsys-generate $(QSYS_FILE) --synthesis=VERILOG && \
-	  python3 $(REPO_ROOT)/05_hps_led/scripts/patch_oct.py \
+	  python3 $(QROOT)/05_hps_led/scripts/patch_oct.py \
 	    ../qsys/hps_system/synthesis/submodules/altdq_dqs2_acv_connect_to_hard_phy_cyclonev.sv)
 
 patch-oct:
-	$(call QTOOL,python3 $(REPO_ROOT)/05_hps_led/scripts/patch_oct.py \
+	$(call QTOOL,python3 $(QROOT)/05_hps_led/scripts/patch_oct.py \
 	  ../qsys/hps_system/synthesis/submodules/altdq_dqs2_acv_connect_to_hard_phy_cyclonev.sv)
 
 project: $(QSYS_GEN_DIR)/hps_system.qip
@@ -675,7 +687,7 @@ app:
 	$(call SWTOOL,make -C software/app CC=$(ARM_CC))
 
 check_timing:
-	$(call QTOOL,python3 $(REPO_ROOT)/00_led_blinking/scripts/check_timing_slacks.py \
+	$(call QTOOL,python3 $(QROOT)/00_led_blinking/scripts/check_timing_slacks.py \
 	  $(REVISION_NAME).sta.rpt 2>/dev/null || true)
 
 program-sof: usb-wsl $(REVISION_NAME).sof
@@ -745,10 +757,10 @@ For 09 (and any project that ran openocd/gdb inside the 23.1 container), wrap th
 download-elf: usb-wsl $(APP_DIR)/hps_led.elf
 	$(call SWTOOL, \
 	  openocd \
-	    -c "set BLASTER_FW $(BLASTER_FW)" \
-	    -f $(REPO_ROOT)/05_hps_led/scripts/de10_nano_hps_ublast2.cfg \
+	    -c "set BLASTER_FW $(QROOT)/12_zephyr_led/zephyr/boards/intel/socfpga_std/cyclonev_socdk/support/blaster_6810.hex" \
+	    -f $(QROOT)/05_hps_led/scripts/de10_nano_hps_ublast2.cfg \
 	    -c "init" -c "fpgasoc_prepare_ocram_exec" \
-	    -c "load_image $(REPO_ROOT)/05_hps_led/software/app/hps_led.bin 0xFFFF0000 bin" \
+	    -c "load_image $(QROOT)/05_hps_led/software/app/hps_led.bin 0xFFFF0000 bin" \
 	    -c "resume 0xFFFF0000" -c "shutdown")
 ```
 
@@ -797,9 +809,9 @@ Replace the `rbf` docker invocation:
 ```make
 $(RBF_FILE): $(SOF_FILE) scripts/convert_sof_to_rbf.sh
 	$(call QTOOL, \
-	  cd $(REPO_ROOT)/10_linux_led && \
+	  cd $(QROOT)/10_linux_led && \
 	  bash scripts/convert_sof_to_rbf.sh \
-	    $(REPO_ROOT)/05_hps_led/quartus/de10_nano.sof $(REPO_ROOT)/10_linux_led/de10_nano.rbf)
+	    $(QROOT)/05_hps_led/quartus/de10_nano.sof $(QROOT)/10_linux_led/de10_nano.rbf)
 	@echo "FPGA bitstream: $(RBF_FILE)"
 ```
 
@@ -826,9 +838,9 @@ include ../common/make/quartus-version.mk
 
 $(OUTPUT_RBF): $(KEY_FILE) $(INPUT_SOF) scripts/encrypt_bitstream.sh
 	$(call QTOOL, \
-	  cd $(REPO_ROOT)/13_secure_boot && \
+	  cd $(QROOT)/13_secure_boot && \
 	  bash scripts/encrypt_bitstream.sh \
-	    $(KEY_FILE) $(KEY_ID) $(REPO_ROOT)/05_hps_led/quartus/de10_nano.sof $(OUTPUT_RBF))
+	    $(KEY_FILE) $(KEY_ID) $(QROOT)/05_hps_led/quartus/de10_nano.sof $(OUTPUT_RBF))
 ```
 
 - [ ] **Step 7: Verify `make keys` + `make rsa_keys` + `make sign_fit`**
@@ -932,7 +944,7 @@ program-sof: usb-wsl $(REVISION_NAME).sof
 	$(QUARTUS_PROGRAM)
 
 download-elf: usb-wsl
-	$(call QTOOL,niosv-download --go $(REPO_ROOT)/$(PROJECT_NAME)/software/app/build/niosv_led.elf)
+	$(call QTOOL,niosv-download --go $(QROOT)/$(PROJECT_NAME)/software/app/build/niosv_led.elf)
 
 terminal: usb-wsl
 	$(call QTOOL,niosv-terminal)
