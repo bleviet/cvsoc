@@ -77,8 +77,11 @@ endif
 # ── QTOOL: run a Quartus toolchain command in the project's quartus dir ──────
 ifeq ($(QUARTUS_RUNNER),local)
   # Local: prepend the install's bin dirs to PATH and run directly.
+  # PATH is exported so chained commands inside a single QTOOL call
+  # (e.g. "all" recipes that run several quartus_sh steps) all see it.
   QTOOL = cd $(QROOT)/$(PROJECT_NAME)/quartus && \
-          PATH="$(QUARTUS_BIN):$(QUARTUS_HOME)/quartus/sopc_builder/bin:$(QUARTUS_HOME)/nios2eds/bin:$(QUARTUS_HOME)/niosv/bin:$$PATH" $(1)
+          export PATH="$(QUARTUS_BIN):$(QUARTUS_HOME)/quartus/sopc_builder/bin:$(QUARTUS_HOME)/nios2eds/bin:$(QUARTUS_HOME)/niosv/bin:$$PATH" && \
+          $(1)
 else
   # Docker: run inside the versioned Quartus container, workspace at /work.
   DOCKER_IMAGE ?= cvsoc/quartus:$(QUARTUS_VERSION)
@@ -117,7 +120,8 @@ usb-windows:
 
 # ── QUARTUS_PROGRAM: JTAG-program the .sof ────────────────────────────────────
 ifeq ($(QUARTUS_RUNNER),local)
-QUARTUS_PROGRAM = jtagd; sleep 2; \
+QUARTUS_PROGRAM = export PATH="$(QUARTUS_BIN):$(QUARTUS_HOME)/quartus/sopc_builder/bin:$(QUARTUS_HOME)/nios2eds/bin:$(QUARTUS_HOME)/niosv/bin:$$PATH" && \
+                  jtagd; sleep 2; \
                   quartus_pgm -m jtag -o "p;$(REPO_ROOT)/$(PROJECT_NAME)/quartus/$(REVISION_NAME).sof@$(DEVICE_INDEX)"; \
                   kill $$(pgrep jtagd) 2>/dev/null || true
 else
