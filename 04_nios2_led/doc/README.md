@@ -55,14 +55,18 @@ flowchart LR
 
 ## Building (fully scripted)
 
-All steps are driven from the command line inside the `cvsoc/quartus:23.1` Docker image.
-No GUI tool is required.
+All steps are driven from the project's `quartus/` directory. The Makefile includes the
+shared `common/make/quartus-version.mk` fragment, which auto-detects Docker 23.1 for this
+Nios II project. No GUI tool is required.
 
 ```bash
-docker run --rm \
-  -v /path/to/cvsoc:/work \
-  cvsoc/quartus:23.1 \
-  bash -c "cd /work/04_nios2_led/quartus && make all"
+cd 04_nios2_led/quartus
+
+# Auto-detects Docker 23.1
+make all
+
+# Or be explicit
+make QUARTUS_VERSION=23.1 all
 ```
 
 The `make all` target runs in order:
@@ -89,7 +93,7 @@ make project compile
 make bsp
 
 # Rebuild application only
-make -C ../software/app
+make app
 ```
 
 ## Firmware
@@ -104,17 +108,23 @@ IOWR_ALTERA_AVALON_PIO_DATA(LED_PIO_BASE, pattern);
 
 ## Programming the board
 
-After a successful build:
+After a successful build, attach the USB-Blaster to WSL2 once, then program from the
+project's `quartus/` directory:
 
 ```bash
+cd 04_nios2_led/quartus
+
+# Attach USB-Blaster (replace 2-4 with your bus ID)
+make usb-wsl USBIPD_BUSID=2-4
+
 # Program SRAM configuration (not persistent)
-quartus_pgm -m jtag -o "p;output_files/04_nios2_led.sof"
+make program-sof USBIPD_BUSID=2-4
 
 # Download software
-nios2-download -g software/app/nios2_led.elf
+make download-elf USBIPD_BUSID=2-4
 
 # Open JTAG terminal (printf output)
-nios2-terminal
+make terminal USBIPD_BUSID=2-4
 ```
 
 ## Concepts covered

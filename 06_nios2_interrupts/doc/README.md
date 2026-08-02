@@ -76,21 +76,18 @@ debounce: one edge → one interrupt.
 
 ## Building
 
+All steps are driven from the project's `quartus/` directory. The Makefile includes the
+shared `common/make/quartus-version.mk` fragment, which auto-detects Docker 23.1 for this
+Nios II project. No GUI tool is required.
+
 ```bash
-docker run --rm \
-  -v $(pwd):/work \
-  cvsoc/quartus:23.1 \
-  bash -c 'cd /work/06_nios2_interrupts/qsys && qsys-script --script=nios2_system.tcl && \
-    cd /work/06_nios2_interrupts/quartus && \
-    qsys-generate ../qsys/nios2_system.qsys --synthesis=VHDL --output-directory=../qsys/nios2_system_gen && \
-    quartus_sh -t de10_nano_project.tcl && \
-    quartus_sh --flow compile 06_nios2_interrupts -c de10_nano && \
-    mkdir -p ../software/bsp && \
-    nios2-bsp-create-settings --sopc ../qsys/nios2_system.sopcinfo --type hal \
-      --settings ../software/bsp/settings.bsp --bsp-dir ../software/bsp \
-      --script /opt/intelFPGA/nios2eds/sdk2/bin/bsp-set-defaults.tcl --cpu-name nios2 && \
-    make -C ../software/bsp WINDOWS_EXE= && \
-    make -C ../software/app'
+cd 06_nios2_interrupts/quartus
+
+# Auto-detects Docker 23.1
+make all
+
+# Or be explicit
+make QUARTUS_VERSION=23.1 all
 ```
 
 | Step | Make target | Tool                        | Output                              |
@@ -154,28 +151,23 @@ updates.
 
 ## Programming the board
 
+After a successful build, attach the USB-Blaster to WSL2 once, then program from the
+project's `quartus/` directory:
+
 ```bash
+cd 06_nios2_interrupts/quartus
+
+# Attach USB-Blaster (replace 2-4 with your bus ID)
+make usb-wsl USBIPD_BUSID=2-4
+
 # Program FPGA bitstream
-docker run --rm --privileged \
-  -v /dev/bus/usb:/dev/bus/usb \
-  -v $(pwd):/work \
-  cvsoc/quartus:23.1 \
-  bash -c 'jtagd && sleep 2 && \
-    quartus_pgm -m jtag -o "p;/work/06_nios2_interrupts/quartus/de10_nano.sof@2"; \
-    kill $(pgrep jtagd) 2>/dev/null || true'
+make program-sof USBIPD_BUSID=2-4
 
 # Download ELF and run
-docker run --rm --privileged \
-  -v $(pwd):/work \
-  -v $(pwd)/common/docker/uname_shim.sh:/usr/local/bin/uname:ro \
-  cvsoc/quartus:23.1 \
-  nios2-download -g /work/06_nios2_interrupts/software/app/nios2_interrupts.elf
+make download-elf USBIPD_BUSID=2-4
 
 # Open JTAG UART terminal
-docker run --rm -it --privileged \
-  -v $(pwd)/common/docker/uname_shim.sh:/usr/local/bin/uname:ro \
-  cvsoc/quartus:23.1 \
-  nios2-terminal
+make terminal USBIPD_BUSID=2-4
 ```
 
 ## Debugging

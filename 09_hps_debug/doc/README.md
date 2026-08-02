@@ -79,11 +79,20 @@ flowchart LR
 
 ## Building
 
+All steps are driven from the project's `quartus/` directory. The Makefile includes the
+shared `common/make/quartus-version.mk` fragment, which auto-detects a local Quartus 25.1
+install or falls back to the `cvsoc/quartus:23.1` Docker container. The ARM app is built in
+the `cvsoc/tools:1.0` container. No GUI tool is required.
+
 ```bash
-docker run --rm \
-  -v /path/to/cvsoc:/work \
-  cvsoc/quartus:23.1 \
-  bash -c "cd /work/09_hps_debug/quartus && make all"
+cd 09_hps_debug/quartus
+
+# Auto-detect: local 25.1 if installed, else Docker 23.1
+make all
+
+# Or force a specific version
+make QUARTUS_VERSION=25.1 all
+make QUARTUS_VERSION=23.1 all
 ```
 
 | Step | Target    | Tool                                | Output                       |
@@ -98,11 +107,8 @@ docker run --rm \
 ### Start OpenOCD (Terminal 1)
 
 ```bash
-docker run --rm \
-  -v /path/to/cvsoc:/work \
-  --device /dev/bus/usb \
-  cvsoc/quartus:23.1 \
-  bash -c "cd /work/09_hps_debug/quartus && make openocd"
+cd 09_hps_debug/quartus
+make openocd
 ```
 
 This programs the FPGA, loads the binary into OCRAM via OpenOCD, and leaves
@@ -111,11 +117,8 @@ OpenOCD running with the GDB server active on port 3333.
 ### Launch GDB client (Terminal 2)
 
 ```bash
-docker run --rm -it \
-  -v /path/to/cvsoc:/work \
-  --network host \
-  cvsoc/quartus:23.1 \
-  bash -c "cd /work/09_hps_debug/quartus && make gdb"
+cd 09_hps_debug/quartus
+make gdb
 ```
 
 GDB connects to `localhost:3333`, loads symbol information, sets a hardware

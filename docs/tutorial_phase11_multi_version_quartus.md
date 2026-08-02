@@ -16,8 +16,8 @@ with the **correct Quartus version** — and why it now needs two of them:
 - The manifest variables each project Makefile declares and the shared `quartus-version.mk`
   fragment they include
 - The difference between `QROOT` and `REPO_ROOT` and when to use which
-- The slim **software-tools container** (`cvsoc/tools:1.0`) that replaced the fat Quartus
-  image for ARM cross-compilation
+- The slim **software-tools container** (`cvsoc/tools:1.0`) that now also provides the ARM
+  cross-compilation toolchain, independently of Quartus
 - How to add support for a **new Quartus version**
 - When to use **Nios II** (23.1) vs **Nios V** (25.1)
 - The common build and program commands
@@ -207,12 +207,13 @@ mounts, `scp`, `openocd` invoked on the host).
 
 ## The software-tools container (`cvsoc/tools:1.0`)
 
-Historically the ARM cross-compiler, GDB, and OpenSSH were baked into the fat Quartus image
-`cvsoc/quartus:23.1`. That bundled a 12 GB image with software tools that have **nothing to
-do with Quartus** — and it tied the ARM toolchain to the 23.1 container even when the FPGA
-was synthesized with 25.1.
+The ARM cross-compiler, GDB, and OpenSSH are baked into the fat Quartus image
+`cvsoc/quartus:23.1` and remain there today. That bundles a 12 GB image with software tools
+that have **nothing to do with Quartus** — and it ties the ARM toolchain to the 23.1
+container even when the FPGA was synthesized with 25.1.
 
-The software tools now live in a slim, version-independent container:
+The same software tools are now **also** provided by a slim, version-independent container
+(`cvsoc/tools:1.0`) for Quartus-independent use:
 
 | Tool | Purpose |
 |---|---|
@@ -267,7 +268,11 @@ Because the fragment is data-driven, supporting a new version is mostly a matter
    ```
 
    The probe checks versions **in the order they appear** in `QUARTUS_SUPPORTED`, so list the
-   preferred local version first.
+   preferred local version first. Auto-detect prefers a **locally installed** version over
+   the Docker fallback — the Docker image is only used when nothing in the list is installed
+   locally. The 23.1-first ordering used throughout this repo is safe only because 23.1 is
+   never installed locally; if you install 23.1 too, order the list with the version you
+   actually want first (e.g. `25.1 23.1 26.0`).
 
 3. **Set `QUARTUS_DEFAULT`** if you want it as the Docker fallback (you would also need a
    `cvsoc/quartus:<ver>` image for that path). Otherwise leave the default as is.
@@ -343,7 +348,7 @@ Summary of the project matrix:
 | `04/06/08` | Nios II | `23.1` | Docker 23.1 |
 | `04b/06b/08b` | Nios V | `25.1` | local 25.1 |
 | `05/07/09/14/15` | HPS (+ ARM app) | `23.1 25.1` | local 25.1 → Docker 23.1, app via `cvsoc/tools:1.0` |
-| `10/11/12/13` | Root-level (Linux/Zephyr/secure boot) | `23.1 25.1` | local 25.1 → Docker 23.1 |
+| `10/11/12/13` | Root-level (Linux/Zephyr/secure boot) | `23.1 25.1` | local 25.1 → Docker 23.1; `11` also builds its ARM app via `cvsoc/tools:1.0` |
 
 ---
 
@@ -361,9 +366,14 @@ The probe returns the **first** version in `QUARTUS_SUPPORTED` that has an execu
 `quartus_sh`. Check what is installed:
 
 ```bash
-common/scripts/detect-quartus.sh 23.1 25.1     # prints 25.1 if present
+common/scripts/detect-quartus.sh 23.1 25.1     # returns the first hit: 23.1 if installed,
+                                               # otherwise 25.1
 common/scripts/detect-quartus.sh 23.1          # prints nothing, exit 1 → Docker path
 ```
+
+Note it returns the first locally installed version it finds, in argument order — so the
+"prints 25.1" case above only applies on machines where 23.1 is **not** installed locally.
+On a machine with only 25.1 installed, `detect-quartus.sh 23.1 25.1` prints `25.1`.
 
 If you want to see what the fragment chose without building, print it from any project:
 

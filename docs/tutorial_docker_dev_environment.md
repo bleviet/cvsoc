@@ -18,8 +18,9 @@ By the end of this tutorial you will have:
 > **Note (multi-version Quartus):** the repository now runs Quartus **per version** — 23.1
 > via this Docker image, 25.1 via a local install — selected by the shared
 > `common/make/quartus-version.mk` fragment. The **software** toolchain (ARM cross-gcc,
-> GDB, `scp`, OpenOCD) moved out of this image into the slim `cvsoc/tools:1.0` container;
-> see the section [Multi-version Quartus and the software-tools container](#multi-version-quartus-and-the-software-tools-container)
+> GDB, `scp`, OpenOCD) is now also provided by a separate, Quartus-independent image
+> (`cvsoc/tools:1.0`); this image still carries those tools too. See the section
+> [Multi-version Quartus and the software-tools container](#multi-version-quartus-and-the-software-tools-container)
 > below and the dedicated tutorial
 > [`tutorial_phase11_multi_version_quartus.md`](tutorial_phase11_multi_version_quartus.md).
 
@@ -349,8 +350,8 @@ Rebuild with the same `docker build` command. Because Docker layer caching is co
 ## Multi-version Quartus and the software-tools container
 
 This tutorial built `cvsoc/quartus:23.1` with the ARM cross-compiler baked in. The
-repository has since evolved: **Quartus now runs per-version**, and the software tools
-live in their own slim container.
+repository has since evolved: **Quartus now runs per-version**, and the software tools are
+now also provided by their own slim container.
 
 ### Quartus per-version
 
@@ -368,8 +369,8 @@ for the full explanation, including how to add a new Quartus version.
 
 ### `cvsoc/tools:1.0` — the software-tools container
 
-The ARM cross-compiler, debugger, and network tools previously baked into
-`cvsoc/quartus:23.1` are now a separate, Quartus-independent image built from
+The ARM cross-compiler, debugger, and network tools baked into `cvsoc/quartus:23.1` are now
+**also** provided by a separate, Quartus-independent image built from
 `common/docker/Dockerfile.tools`:
 
 ```bash
@@ -388,8 +389,9 @@ app:
 ```
 
 Keeping the software tools in a separate image means the ARM toolchain is identical whether
-the FPGA bitstream is synthesized with local 25.1 or Docker 23.1 — and the fat Quartus
-image is no longer pulled for projects that only need the ARM compiler.
+the FPGA bitstream is synthesized with local 25.1 or Docker 23.1 — and an ARM-only build can
+use the slim `cvsoc/tools:1.0` image without pulling the fat Quartus one (which still
+carries the same tools for the older flows).
 
 ---
 

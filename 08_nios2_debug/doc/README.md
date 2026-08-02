@@ -69,11 +69,18 @@ flowchart LR
 
 ## Building
 
+All steps are driven from the project's `quartus/` directory. The Makefile includes the
+shared `common/make/quartus-version.mk` fragment, which auto-detects Docker 23.1 for this
+Nios II project. No GUI tool is required.
+
 ```bash
-docker run --rm \
-  -v /path/to/cvsoc:/work \
-  cvsoc/quartus:23.1 \
-  bash -c "cd /work/08_nios2_debug/quartus && make all"
+cd 08_nios2_debug/quartus
+
+# Auto-detects Docker 23.1
+make all
+
+# Or be explicit
+make QUARTUS_VERSION=23.1 all
 ```
 
 | Step | Target      | Tool                            | Output                         |
@@ -89,11 +96,8 @@ docker run --rm \
 ### Start GDB server (Terminal 1)
 
 ```bash
-docker run --rm \
-  -v /path/to/cvsoc:/work \
-  --device /dev/bus/usb \
-  cvsoc/quartus:23.1 \
-  bash -c "cd /work/08_nios2_debug/quartus && make gdb-server"
+cd 08_nios2_debug/quartus
+make gdb-server
 ```
 
 This programs the FPGA, loads the ELF into Nios II OCRAM, and starts
@@ -102,11 +106,8 @@ This programs the FPGA, loads the ELF into Nios II OCRAM, and starts
 ### Launch GDB client (Terminal 2)
 
 ```bash
-docker run --rm -it \
-  -v /path/to/cvsoc:/work \
-  --network host \
-  cvsoc/quartus:23.1 \
-  bash -c "cd /work/08_nios2_debug/quartus && make gdb"
+cd 08_nios2_debug/quartus
+make gdb
 ```
 
 GDB connects to localhost:2345, loads symbols, sets a hardware breakpoint
