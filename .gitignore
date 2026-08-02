@@ -54,3 +54,6 @@ vivado*.jou
 vivado*.log
 .Xil/
 **/.Xil/
+
+# Git worktrees
+.worktrees/
