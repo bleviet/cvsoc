@@ -13,9 +13,12 @@ REVISION_NAME = de10_nano
 QSYS_TCL     = ../qsys/niosv_system.tcl
 QSYS_FILE    = ../qsys/niosv_system.qsys
 QSYS_GEN_DIR = ../qsys/niosv_system_gen
+QSYS_QIP     = $(QSYS_GEN_DIR)/synthesis/niosv_system.qip
+QSYS_STAMP   = $(QSYS_GEN_DIR)/.generated
 SOPCINFO     = ../qsys/niosv_system.sopcinfo
 BSP_DIR      = ../software/bsp
 APP_DIR      = ../software/app
+CMAKE_BUILD_TYPE ?= Release
 
 QUARTUS_SUPPORTED ?= 25.1
 QUARTUS_DEFAULT   ?= 25.1
@@ -26,8 +29,11 @@ include ../../common/make/quartus-version.mk
 # niosv-bsp/niosv-app need the Quartus environment vars; the local runner's
 # QTOOL only prepends bin dirs to PATH. The Docker image has these baked in.
 ifeq ($(QUARTUS_RUNNER),local)
+  RISCFREE_ROOT = $(QUARTUS_HOME)/riscfree
+  RISCFREE_PATH = $(RISCFREE_ROOT)/build_tools/bin:$(RISCFREE_ROOT)/build_tools/cmake/bin:$(RISCFREE_ROOT)/toolchain/riscv32-unknown-elf/bin:$(RISCFREE_ROOT)/RiscFree:$(RISCFREE_ROOT)/debugger/gdbserver-riscv
   NIOSV_ENV = export QUARTUS_ROOTDIR=$(QUARTUS_HOME)/quartus; \
-              export SOPC_KIT_NIOS2=$(QUARTUS_HOME)/quartus;
+              export SOPC_KIT_NIOS2=$(QUARTUS_HOME)/nios2eds; \
+              export PATH="$(RISCFREE_PATH):$$PATH";
 else
   NIOSV_ENV =
 endif
@@ -43,7 +49,7 @@ GDB_PORT ?= 2345
 # toolchain it prints a warning and continues, so 'make all' still yields the
 # bitstream. 'make app' alone still hard-fails so the toolchain gap is visible.
 # (This lets 08b_niosv_debug reuse this project via '$(MAKE) -C ... all'.)
-all: qsys project compile bsp
+all: compile bsp
 	$(MAKE) app || { echo; \
 	  echo "WARNING: 'make app' requires the RiscFree RISC-V toolchain"; \
 	  echo "  (not installed) — FPGA bitstream de10_nano.sof is complete."; \
@@ -52,18 +58,22 @@ all: qsys project compile bsp
 $(QSYS_FILE): $(QSYS_TCL)
 	$(call QTOOL,cd ../qsys && qsys-script --script=niosv_system.tcl)
 
-qsys: $(QSYS_FILE)
-	$(call QTOOL,qsys-generate $(QSYS_FILE) --synthesis=VHDL --output-directory=$(QSYS_GEN_DIR))
+$(QSYS_STAMP): $(QSYS_FILE)
+	$(call QTOOL, \
+	  qsys-generate $(QSYS_FILE) --synthesis=VHDL --output-directory=$(QSYS_GEN_DIR) && \
+	  test -f $(QSYS_QIP) && test -f $(SOPCINFO) && touch $(QSYS_STAMP))
 
-project: $(QSYS_GEN_DIR)/synthesis/niosv_system.qip
+qsys: $(QSYS_STAMP)
+
+project: $(QSYS_STAMP)
 	$(call QTOOL,quartus_sh -t de10_nano_project.tcl)
 
-compile:
+compile: project
 	$(call QTOOL,quartus_sh --flow compile $(PROJECT_NAME) -c $(REVISION_NAME))
 
 # The .bsp settings file is the positional argument to niosv-bsp (there is no
 # --settings option). Requires the RiscFree RISC-V toolchain + CMake.
-bsp: $(SOPCINFO)
+bsp: $(QSYS_STAMP)
 	$(call QTOOL,$(NIOSV_ENV) \
 	  mkdir -p $(BSP_DIR) && \
 	  niosv-bsp -c --sopcinfo=$(SOPCINFO) --type=hal \
@@ -74,16 +84,18 @@ app: bsp
 	$(call QTOOL,$(NIOSV_ENV) \
 	  niosv-app --bsp-dir=$(BSP_DIR) --srcs=$(APP_DIR)/main.c \
 	    --app-dir=$(APP_DIR) --elf-name=niosv_interrupts.elf && \
-	  cd $(APP_DIR) && cmake -S . -B build && cmake --build build)
+	  cd $(APP_DIR) && cmake -S . -B build \
+	    -DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE) && cmake --build build)
 
 program-sof: usb-ready $(REVISION_NAME).sof
 	$(QUARTUS_PROGRAM)
 
 download-elf: usb-ready
-	$(call QTOOL,niosv-download --go $(QROOT)/$(PROJECT_NAME)/software/app/build/niosv_interrupts.elf)
+	$(call QTOOL,$(NIOSV_ENV) \
+	  niosv-download --go $(QROOT)/$(PROJECT_NAME)/software/app/build/niosv_interrupts.elf)
 
 terminal: usb-ready
-	$(call QTOOL,niosv-terminal)
+	$(call QTOOL,$(NIOSV_ENV) niosv-terminal)
 
 # ── RISC-V GDB server ─────────────────────────────────────────────────────────
 # Nios V is debugged with the Ashling RiscFree GDB server (ash-riscv-gdb-server)
@@ -123,4 +135,4 @@ gdb-tui: usb-ready
 clean:
 	$(call QTOOL, \
 	  rm -rf db incremental_db output_files && \
-	  rm -rf $(QSYS_GEN_DIR) $(QSYS_FILE) $(BSP_DIR) $(APP_DIR)/build)
+	  rm -rf $(QSYS_GEN_DIR) $(QSYS_FILE) $(SOPCINFO) $(BSP_DIR) $(APP_DIR)/build)
