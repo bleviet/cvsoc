@@ -31,7 +31,7 @@ check_timing:
 	$(call QTOOL,python3 $(QROOT)/00_led_blinking/scripts/check_timing_slacks.py \
 	  $(REVISION_NAME).sta.rpt 2>/dev/null || true)
 
-program-sof: usb-wsl $(REVISION_NAME).sof
+program-sof: usb-ready $(REVISION_NAME).sof
 	$(QUARTUS_PROGRAM)
 
 clean:

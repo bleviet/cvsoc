@@ -60,13 +60,13 @@ app: bsp
 	    --app-dir=$(APP_DIR) --elf-name=niosv_led.elf && \
 	  cd $(APP_DIR) && cmake -S . -B build && cmake --build build)
 
-program-sof: usb-wsl $(REVISION_NAME).sof
+program-sof: usb-ready $(REVISION_NAME).sof
 	$(QUARTUS_PROGRAM)
 
-download-elf: usb-wsl
+download-elf: usb-ready
 	$(call QTOOL,niosv-download --go $(QROOT)/$(PROJECT_NAME)/software/app/build/niosv_led.elf)
 
-terminal: usb-wsl
+terminal: usb-ready
 	$(call QTOOL,niosv-terminal)
 
 clean:

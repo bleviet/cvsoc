@@ -76,13 +76,13 @@ app: bsp
 	    --app-dir=$(APP_DIR) --elf-name=niosv_interrupts.elf && \
 	  cd $(APP_DIR) && cmake -S . -B build && cmake --build build)
 
-program-sof: usb-wsl $(REVISION_NAME).sof
+program-sof: usb-ready $(REVISION_NAME).sof
 	$(QUARTUS_PROGRAM)
 
-download-elf: usb-wsl
+download-elf: usb-ready
 	$(call QTOOL,niosv-download --go $(QROOT)/$(PROJECT_NAME)/software/app/build/niosv_interrupts.elf)
 
-terminal: usb-wsl
+terminal: usb-ready
 	$(call QTOOL,niosv-terminal)
 
 # ── RISC-V GDB server ─────────────────────────────────────────────────────────
@@ -104,7 +104,7 @@ close-gdb-port:
 # Starts ash-riscv-gdb-server and keeps it running so a RISC-V GDB client can
 # connect. Run this in one terminal, then run 'make gdb-tui' in a second
 # terminal. Requires the RiscFree toolchain on PATH (niosv-shell).
-gdb-server: close-gdb-port usb-wsl
+gdb-server: close-gdb-port usb-ready
 	$(call QTOOL,$(NIOSV_ENV) \
 	  ash-riscv-gdb-server --auto-detect true --probe-type usb-blaster-2 \
 	    --gdb-port $(GDB_PORT))
@@ -112,7 +112,7 @@ gdb-server: close-gdb-port usb-wsl
 # ── RISC-V GDB TUI session ────────────────────────────────────────────────────
 # Opens riscv32-unknown-elf-gdb in TUI mode. Requires gdb-server to be running
 # first (make gdb-server in another terminal) and the RiscFree toolchain.
-gdb-tui: usb-wsl
+gdb-tui: usb-ready
 	$(call QTOOL,$(NIOSV_ENV) \
 	  riscv32-unknown-elf-gdb -tui \
 	    -ex "set pagination off" \

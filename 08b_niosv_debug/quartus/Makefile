@@ -89,13 +89,13 @@ app: bsp
 	    --app-dir=$(APP_DIR) --elf-name=niosv_debug.elf && \
 	  cd $(APP_DIR) && cmake -S . -B build && cmake --build build)
 
-program-sof: usb-wsl $(REVISION_NAME).sof
+program-sof: usb-ready $(REVISION_NAME).sof
 	$(QUARTUS_PROGRAM)
 
-download-elf: usb-wsl
+download-elf: usb-ready
 	$(call QTOOL,niosv-download --go $(QROOT)/$(PROJECT_NAME)/software/app/build/niosv_debug.elf)
 
-terminal: usb-wsl
+terminal: usb-ready
 	$(call QTOOL,niosv-terminal)
 
 # ── RISC-V GDB server ─────────────────────────────────────────────────────────
@@ -117,7 +117,7 @@ close-gdb-port:
 # Starts ash-riscv-gdb-server and keeps it running so a RISC-V GDB client can
 # connect. Run this in one terminal, then run 'make gdb' in a second terminal.
 # Requires the RiscFree toolchain on PATH (niosv-shell).
-gdb-server: close-gdb-port usb-wsl
+gdb-server: close-gdb-port usb-ready
 	$(call QTOOL,$(NIOSV_ENV) \
 	  ash-riscv-gdb-server --auto-detect true --probe-type usb-blaster-2 \
 	    --gdb-port $(GDB_PORT))
@@ -126,7 +126,7 @@ gdb-server: close-gdb-port usb-wsl
 # Connects riscv32-unknown-elf-gdb to the running gdb-server (started with
 # 'make gdb-server'). The GDB init script loads the ELF, sets a breakpoint at
 # set_led(), and continues. Requires the RiscFree toolchain.
-gdb: usb-wsl
+gdb: usb-ready
 	$(call QTOOL,$(NIOSV_ENV) \
 	  riscv32-unknown-elf-gdb \
 	    -ex "set pagination off" \

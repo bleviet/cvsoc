@@ -92,11 +92,11 @@ check_timing:
 	$(call QTOOL,python3 $(QROOT)/00_led_blinking/scripts/check_timing_slacks.py \
 	  $(REVISION_NAME).sta.rpt 2>/dev/null || true)
 
-program-sof: usb-wsl $(REVISION_NAME).sof
+program-sof: usb-ready $(REVISION_NAME).sof
 	$(QUARTUS_PROGRAM)
 
 # ── Download ELF (load and run, no interactive debugging) ────────────────────
-download-elf: usb-wsl $(APP_DIR)/hps_debug.elf
+download-elf: usb-ready $(APP_DIR)/hps_debug.elf
 	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
@@ -126,7 +126,7 @@ deploy-elf: $(APP_DIR)/hps_debug.elf
 #
 # NOTE: Exposes port $(GDB_PORT) from the Docker container to localhost so
 #       the second 'make gdb' container can connect via --network host.
-openocd: usb-wsl
+openocd: usb-ready
 	docker run --rm --user $$(id -u):$$(id -g) -it --privileged \
 	  -p $(GDB_PORT):$(GDB_PORT) \
 	  -p 4444:4444 \

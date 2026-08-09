@@ -104,12 +104,12 @@ check_timing:
 	$(call QTOOL,python3 $(QROOT)/00_led_blinking/scripts/check_timing_slacks.py \
 	  $(REVISION_NAME).sta.rpt 2>/dev/null || true)
 
-program-sof: usb-wsl $(REVISION_NAME).sof
+program-sof: usb-ready $(REVISION_NAME).sof
 	$(QUARTUS_PROGRAM)
 
 # download-elf: run inside the 23.1 container using Altera's openocd with the
 # DE10-Nano USB-Blaster II (uname shim required by the OpenOCD support files).
-download-elf: usb-wsl $(APP_DIR)/ddr3_fpga_hps.elf
+download-elf: usb-ready $(APP_DIR)/ddr3_fpga_hps.elf
 	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \

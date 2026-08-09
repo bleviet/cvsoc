@@ -92,7 +92,7 @@ check_timing:
 	$(call QTOOL,python3 $(QROOT)/00_led_blinking/scripts/check_timing_slacks.py \
 	  $(REVISION_NAME).sta.rpt 2>/dev/null || true)
 
-program-sof: usb-wsl $(REVISION_NAME).sof
+program-sof: usb-ready $(REVISION_NAME).sof
 	$(QUARTUS_PROGRAM)
 
 # download-elf: OpenOCD on the host with the DE10-Nano USB-Blaster II config.
@@ -100,7 +100,7 @@ OPENOCD_UBLAST_CFG = ../scripts/de10_nano_hps_ublast2.cfg
 BLASTER_FW = $(REPO_ROOT)/12_zephyr_led/zephyr/boards/intel/socfpga_std/cyclonev_socdk/support/blaster_6810.hex
 APP_BIN    = $(REPO_ROOT)/$(PROJECT_NAME)/software/app/hps_led.bin
 
-download-elf: usb-wsl $(APP_DIR)/hps_led.elf
+download-elf: usb-ready $(APP_DIR)/hps_led.elf
 	openocd \
 	  -c "set BLASTER_FW $(BLASTER_FW)" \
 	  -f $(realpath $(OPENOCD_UBLAST_CFG)) \

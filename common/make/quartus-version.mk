@@ -25,7 +25,9 @@
 #   QTOOL              $(call QTOOL,cmd)  run a Quartus tool
 #   SWTOOL             $(call SWTOOL,cmd) run a software tool in the tools container
 #   QUARTUS_PROGRAM    JTAG-program the .sof (recipe)
-#   usb-wsl, usb-windows  USB-Blaster attach/detach targets
+#   usb-ready          prepare USB-Blaster access for the detected host
+#   usb-linux          validate direct USB access on native Linux
+#   usb-wsl, usb-windows  USB-Blaster attach/detach targets for WSL2
 
 REPO_ROOT ?= $(realpath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 
@@ -39,6 +41,20 @@ TOOLS_IMAGE ?= cvsoc/tools:1.0
 USBIPD       ?= usbipd.exe
 USBIPD_BUSID ?= 2-4
 DEVICE_INDEX ?= 2
+
+# Auto-select how the host exposes the USB-Blaster. Override USB_HOST only
+# when auto-detection is unsuitable (supported values: linux, wsl).
+HOST_OS := $(shell uname -s)
+IS_WSL  := $(shell test -r /proc/sys/kernel/osrelease && \
+                  grep -qi microsoft /proc/sys/kernel/osrelease && echo 1 || echo 0)
+ifeq ($(IS_WSL),1)
+  USB_HOST_DEFAULT := wsl
+else ifeq ($(HOST_OS),Linux)
+  USB_HOST_DEFAULT := linux
+else
+  USB_HOST_DEFAULT := unsupported
+endif
+USB_HOST ?= $(USB_HOST_DEFAULT)
 
 # ── Version resolution ────────────────────────────────────────────────────────
 ifneq ($(strip $(QUARTUS_VERSION)),)
@@ -110,13 +126,48 @@ SWTOOL = docker run --rm --user $$(id -u):$$(id -g) \
          $(TOOLS_IMAGE) \
          bash -c 'cd /work/$(PROJECT_NAME) && $(1)'
 
-# ── USB-Blaster attach/detach (WSL2) ─────────────────────────────────────────
+# ── USB-Blaster host preparation (native Linux / WSL2) ─────────────────────
+# Host-neutral prerequisite used by all programming, download, and debug
+# targets. Native Linux needs no attach operation; WSL2 uses usbipd-win.
+.PHONY: usb-ready usb-linux usb-wsl usb-windows
+
+ifeq ($(USB_HOST),wsl)
+usb-ready: usb-wsl
+else ifeq ($(USB_HOST),linux)
+usb-ready: usb-linux
+else
+usb-ready:
+	@echo "Unsupported programming host '$(HOST_OS)'. Set USB_HOST=linux or USB_HOST=wsl." >&2
+	@false
+endif
+
+usb-linux:
+	@if [ "$(HOST_OS)" != "Linux" ] || [ "$(IS_WSL)" = "1" ]; then \
+	  echo "usb-linux requires a native Linux host." >&2; exit 1; \
+	fi
+	@test -d /dev/bus/usb || { \
+	  echo "/dev/bus/usb is unavailable; cannot access the USB-Blaster." >&2; exit 1; \
+	}
+	@echo "Using USB-Blaster directly from native Linux."
+
 usb-wsl:
+	@if [ "$(IS_WSL)" != "1" ]; then \
+	  echo "usb-wsl requires WSL2; use 'make usb-ready' for automatic host selection." >&2; exit 1; \
+	fi
+	@command -v $(USBIPD) >/dev/null 2>&1 || { \
+	  echo "$(USBIPD) was not found; install usbipd-win or set USBIPD." >&2; exit 1; \
+	}
 	@echo "Connecting USB-Blaster (busid $(USBIPD_BUSID)) to WSL2..."
 	$(USBIPD) attach --wsl --busid $(USBIPD_BUSID) 2>/dev/null || true
 	@sleep 1
 
 usb-windows:
+	@if [ "$(IS_WSL)" != "1" ]; then \
+	  echo "usb-windows is only available under WSL2." >&2; exit 1; \
+	fi
+	@command -v $(USBIPD) >/dev/null 2>&1 || { \
+	  echo "$(USBIPD) was not found; install usbipd-win or set USBIPD." >&2; exit 1; \
+	}
 	@echo "Detaching USB-Blaster (busid $(USBIPD_BUSID)) from WSL2 → Windows..."
 	$(USBIPD) detach --busid $(USBIPD_BUSID) 2>/dev/null || true
 	@sleep 1

@@ -67,19 +67,19 @@ check_timing:
 	$(call QTOOL,python3 $(QROOT)/00_led_blinking/scripts/check_timing_slacks.py \
 	  $(REVISION_NAME).sta.rpt 2>/dev/null || true)
 
-program-sof: usb-wsl $(REVISION_NAME).sof
+program-sof: usb-ready $(REVISION_NAME).sof
 	$(QUARTUS_PROGRAM)
 
 # download-elf / terminal need the uname shim and --privileged / -it mounts
 # that QTOOL does not provide; they are written as raw docker run commands.
-download-elf: usb-wsl $(APP_DIR)/nios2_led.elf
+download-elf: usb-ready $(APP_DIR)/nios2_led.elf
 	docker run --rm --user $$(id -u):$$(id -g) --privileged \
 	  -v $(REPO_ROOT):/work \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  $(DOCKER_IMAGE) \
 	  nios2-download -g /work/$(PROJECT_NAME)/software/app/nios2_led.elf
 
-terminal: usb-wsl
+terminal: usb-ready
 	docker run --rm --user $$(id -u):$$(id -g) -it --privileged \
 	  -v $(UNAME_SHIM):/usr/local/bin/uname:ro \
 	  $(DOCKER_IMAGE) \
