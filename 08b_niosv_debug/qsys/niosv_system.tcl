@@ -39,6 +39,7 @@ set_project_property DEVICE {5CSEBA6U23I7}
 # ── Clock bridge (50 MHz from top-level) ─────────────────────────────────────
 add_instance clk_0 altera_clock_bridge
 set_instance_parameter_value clk_0 NUM_CLOCK_OUTPUTS 1
+set_instance_parameter_value clk_0 EXPLICIT_CLOCK_RATE {50000000}
 
 # ── Reset bridge (active-high synchronous reset) ──────────────────────────────
 add_instance reset_bridge altera_reset_bridge
