@@ -2,7 +2,7 @@ package require -exact qsys 16.1
 
 # ---------------------------------------------------------------------------
 # Nios V/m LED demo system for DE10-Nano (Cyclone V 5CSEBA6U23I7)
-# Components: Nios V/m CPU, 32 KB on-chip memory, JTAG UART, System ID, LED PIO
+# Components: Nios V/m CPU, 64 KB on-chip memory, JTAG UART, System ID, LED PIO
 # Quartus 25.1 only (intel_niosv_m is not available in 23.1).
 #
 # Nios V/m exposes its Avalon-MM masters as "data_manager" and
@@ -34,9 +34,9 @@ set_instance_parameter_value reset_bridge ACTIVE_LOW_RESET {0}
 add_instance niosv intel_niosv_m
 set_instance_parameter_value niosv enableAvalonInterface {True}
 
-# ── On-chip memory: 32 KB (instruction + data) ───────────────────────────────
+# ── On-chip memory: 64 KB (instruction + data) ───────────────────────────────
 add_instance onchip_mem altera_avalon_onchip_memory2
-set_instance_parameter_value onchip_mem memorySize {32768}
+set_instance_parameter_value onchip_mem memorySize {65536}
 set_instance_parameter_value onchip_mem dataWidth {32}
 set_instance_parameter_value onchip_mem singleClockOperation {1}
 

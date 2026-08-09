@@ -66,7 +66,7 @@ bsp: $(QSYS_STAMP)
 
 app: bsp
 	$(call QTOOL,$(NIOSV_ENV) \
-	  niosv-app --bsp-dir=$(BSP_DIR) --srcs=$(APP_DIR)/main.c \
+	  niosv-app --bsp-dir=$(BSP_DIR) --srcs=$(APP_DIR)/main.cpp \
 	    --app-dir=$(APP_DIR) --elf-name=niosv_led.elf && \
 	  cd $(APP_DIR) && cmake -S . -B build \
 	    -DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE) && cmake --build build)
