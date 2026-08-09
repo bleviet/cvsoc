@@ -91,6 +91,11 @@ CMake-based build flow rather than the Nios II make flow.
 
 ## Interactive register shell
 
+For a beginner-oriented explanation of the complete design, including
+memory-mapped I/O, C++ templates, command registration, parsing, and UART
+transport, see [Building an Interactive Register Shell with Embedded
+C++](REGISTER_SHELL_TUTORIAL.md).
+
 After programming the FPGA and downloading the application, connect to the
 JTAG UART:
 
