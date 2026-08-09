@@ -79,7 +79,7 @@ download-elf: usb-ready
 	  niosv-download --go $(QROOT)/$(PROJECT_NAME)/software/app/build/niosv_led.elf)
 
 terminal: usb-ready
-	$(call QTOOL,$(NIOSV_ENV) niosv-terminal)
+	$(call QTOOL,$(NIOSV_ENV) juart-terminal)
 
 clean:
 	$(call QTOOL, \
