@@ -89,6 +89,18 @@ static int wait_state(void __iomem *base, u32 want_mask, int timeout_ms)
     return -ETIMEDOUT;
 }
 
+static void fpga_bridges_disable(void)
+{
+    void __iomem *rstmgr = ioremap(RSTMGR_BRGMODRST, 4);
+    if (rstmgr) {
+        u32 rst = readl(rstmgr);
+        writel(rst | BRGMODRST_LWH2F | BRGMODRST_H2F, rstmgr);
+        udelay(100);
+        iounmap(rstmgr);
+        pr_info("fpga_load: LW H2F and H2F bridges gated in reset\n");
+    }
+}
+
 static int __init fpga_load_init(void)
 {
     void __iomem *base, *data_port;
@@ -128,6 +140,9 @@ static int __init fpga_load_init(void)
     gpio = mgr_rd(base, FPGAMGR_GPIO_EXT);
     pr_info("fpga_load: MSEL=0x%02X STAT=0x%08X GPIO=0x%08X\n",
             msel, mgr_rd(base, FPGAMGR_STAT), gpio);
+
+    /* Gate AXI bridges before resetting FPGA for safe live reconfiguration */
+    fpga_bridges_disable();
 
     /* Step 1: Set CDRATIO=x8, CFGWDTH=32, clear NCE, set EN */
     ctrl = mgr_rd(base, FPGAMGR_CTRL);
@@ -265,6 +280,7 @@ out:
 
 static void __exit fpga_load_exit(void)
 {
+    fpga_bridges_disable();
     pr_info("fpga_load: module unloaded\n");
 }
 
