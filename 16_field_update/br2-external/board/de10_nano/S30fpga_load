@@ -1,0 +1,93 @@
+#!/bin/sh
+# /etc/init.d/S30fpga_load — Program the FPGA from the active OTA slot
+#
+# Supports:
+#   start / restart         Boot-time load from /opt/firmware/active with fallback
+#   program-slot <slot_dir> Direct load of <slot_dir>/de10_nano.rbf (used by ota_daemon)
+#   stop                    Unload fpga_load kernel module (gates AXI bridges)
+
+FW_ROOT="/opt/firmware"
+ACTIVE_LINK="${FW_ROOT}/active"
+FIRMWARE="de10_nano.rbf"
+
+program_from_slot() {
+    slot_dir="$1"
+    if [ ! -f "${slot_dir}/${FIRMWARE}" ]; then
+        echo "Missing ${slot_dir}/${FIRMWARE}"
+        return 1
+    fi
+    if head -c 31 "${slot_dir}/${FIRMWARE}" 2>/dev/null | grep -q "UNCOMPRESSED_INVALID_RBF_HEADER"; then
+        msg="fpga_load: ERROR - uncompressed/invalid RBF rejected (MSEL=0x0A requires compressed bitstream)"
+        echo "${msg}" > /dev/kmsg 2>/dev/null || true
+        echo "${msg}"
+        return 1
+    fi
+    cp "${slot_dir}/${FIRMWARE}" "/lib/firmware/${FIRMWARE}"
+    rmmod fpga_load 2>/dev/null || true
+    modprobe fpga_load firmware="${FIRMWARE}"
+    ret=$?
+    dmesg | grep fpga_load | tail -4
+    return $ret
+}
+
+start() {
+    printf "Starting FPGA programming (OTA slot-aware)... "
+
+    # Task 3.4: Run boot-guard check to revert any interrupted pending update
+    if [ -x /usr/bin/ota_daemon.py ]; then
+        /usr/bin/ota_daemon.py --fw-root "${FW_ROOT}" --recover-only >/dev/null 2>&1 || true
+    fi
+
+    if [ -d "${ACTIVE_LINK}" ] && program_from_slot "${ACTIVE_LINK}"; then
+        echo "OK ($(readlink "${ACTIVE_LINK}"))"
+        return 0
+    fi
+
+    # Fallback at boot: try slot_a then slot_b, then /lib/firmware/de10_nano.rbf
+    for fallback_slot in slot_a slot_b; do
+        if [ -f "${FW_ROOT}/${fallback_slot}/${FIRMWARE}" ]; then
+            echo "WARN: active slot failed, trying fallback ${fallback_slot}..."
+            if program_from_slot "${FW_ROOT}/${fallback_slot}"; then
+                ln -sfn "${fallback_slot}" "${ACTIVE_LINK}"
+                echo "OK (fallback ${fallback_slot})"
+                return 0
+            fi
+        fi
+    done
+
+    if [ -f "/lib/firmware/${FIRMWARE}" ]; then
+        rmmod fpga_load 2>/dev/null || true
+        if modprobe fpga_load firmware="${FIRMWARE}"; then
+            echo "OK (/lib/firmware/${FIRMWARE})"
+            return 0
+        fi
+    fi
+
+    echo "FAILED"
+    return 1
+}
+
+stop() {
+    printf "Stopping fpga_load... "
+    rmmod fpga_load 2>/dev/null || true
+    echo "OK"
+}
+
+case "$1" in
+    start)        start ;;
+    stop)         stop ;;
+    restart)      stop; start ;;
+    program-slot)
+        if [ -z "$2" ]; then
+            echo "Usage: $0 program-slot <slot_dir>"
+            exit 1
+        fi
+        program_from_slot "$2"
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|program-slot <slot_dir>}"
+        exit 1
+        ;;
+esac
+
+exit $?

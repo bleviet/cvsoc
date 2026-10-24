@@ -1,0 +1,35 @@
+#!/bin/sh
+# /etc/init.d/S50ota_daemon — Start the Over-The-Air (OTA) Field Update Daemon.
+
+PORT=8090
+LOGFILE=/var/log/ota_daemon.log
+PIDFILE=/var/run/ota_daemon.pid
+
+start() {
+    printf "Starting OTA Update Daemon (port %d)... " "${PORT}"
+    python3 /usr/bin/ota_daemon.py --port "${PORT}" >> "${LOGFILE}" 2>&1 &
+    PID=$!
+    echo "${PID}" > "${PIDFILE}"
+    echo "OK (PID ${PID})"
+}
+
+stop() {
+    printf "Stopping OTA Update Daemon... "
+    if [ -f "${PIDFILE}" ]; then
+        kill "$(cat "${PIDFILE}")" 2>/dev/null || true
+        rm -f "${PIDFILE}"
+    fi
+    echo "OK"
+}
+
+case "$1" in
+    start)   start ;;
+    stop)    stop ;;
+    restart) stop; start ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0

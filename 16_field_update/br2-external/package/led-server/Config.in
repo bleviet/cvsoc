@@ -1,0 +1,13 @@
+config BR2_PACKAGE_LED_SERVER
+	bool "led-server"
+	help
+	  UDP server that receives LED pattern commands from a PC and writes
+	  them to the FPGA LED PIO register on the DE10-Nano.
+
+	  Phase 7 Track A — HPS Ethernet LED control.
+
+	  Protocol (2-byte request / 2-byte response):
+	    CMD 0x01 = SET_PATTERN
+	    CMD 0x02 = GET_PATTERN
+
+	  https://github.com/bleviet/cvsoc

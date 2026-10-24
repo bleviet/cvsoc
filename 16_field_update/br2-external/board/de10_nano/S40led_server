@@ -1,0 +1,50 @@
+#!/bin/sh
+# /etc/init.d/S40led_server — Start the LED UDP server from the active OTA slot.
+
+PORT=5005
+LOGFILE=/var/log/led_server.log
+PIDFILE=/var/run/led_server.pid
+ACTIVE_BIN="/opt/firmware/active/led_server"
+
+start() {
+    BIN="${ACTIVE_BIN}"
+    if [ ! -x "${BIN}" ]; then
+        BIN="/usr/bin/led_server"
+    fi
+    printf "Starting LED UDP server (%s, port %d)... " "${BIN}" "${PORT}"
+    "${BIN}" --port "${PORT}" >> "${LOGFILE}" 2>&1 &
+    PID=$!
+    echo "${PID}" > "${PIDFILE}"
+    sleep 1
+    if kill -0 "${PID}" 2>/dev/null; then
+        echo "OK (PID ${PID})"
+        return 0
+    else
+        echo "FAILED (process exited immediately)"
+        rm -f "${PIDFILE}"
+        return 1
+    fi
+}
+
+stop() {
+    printf "Stopping LED UDP server... "
+    if [ -f "${PIDFILE}" ]; then
+        kill "$(cat "${PIDFILE}")" 2>/dev/null || true
+        kill -9 "$(cat "${PIDFILE}")" 2>/dev/null || true
+        rm -f "${PIDFILE}"
+    fi
+    killall -9 led_server 2>/dev/null || true
+    echo "OK"
+}
+
+case "$1" in
+    start)   start ;;
+    stop)    stop ;;
+    restart) stop; start ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit $?

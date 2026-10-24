@@ -1,0 +1,16 @@
+# Buildroot output
+buildroot/
+buildroot-*/
+
+# Generated images and bundles
+build/
+output/
+*.img
+
+# FPGA bitstream (copied or generated from 05_hps_led SOF)
+*.rbf
+
+# Editor / OS junk
+*~
+*.swp
+.DS_Store
