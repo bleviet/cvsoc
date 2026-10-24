@@ -2,7 +2,9 @@
 
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Type:** Tutorial (tooling / infrastructure)  
-> **Difficulty:** Intermediate — you are comfortable with the project Makefiles, TCL, and Docker
+> **Difficulty:** Intermediate — you are comfortable with the project Makefiles, TCL, and Docker  
+> **Deep-Dive Explanation:** [Explanation — Docker Containers, Host Isolation, and Multi-Version Quartus Architecture](explanation_docker_and_multi_version_quartus.md)  
+> **Related How-To Guide:** [How-To: Migrate a Project from Nios II (Quartus 23.1) to Nios V (Quartus 25.1)](howto_migrate_nios2_to_niosv.md)
 
 ---
 

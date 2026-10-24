@@ -1,7 +1,8 @@
 # Phase 9: Cybersecurity (Educational Secure Boot)
 
-> **Phase:** 9 (Bonus/Cross-cutting)
-> **Goal:** Understand the principles of securing embedded systems through image signing and encryption without permanently locking your hardware.
+> **Phase:** 9 (Bonus/Cross-cutting)  
+> **Goal:** Understand the principles of securing embedded systems through image signing and encryption without permanently locking your hardware.  
+> **Deep-Dive Explanation:** [Explanation — Educational Secure Boot, AES-256 Bitstream Encryption, and FIT Image Signing](../../docs/explanation_phase9_secure_boot_and_crypto.md)
 
 This project implements an **Educational Secure Boot** flow for the DE10-Nano. We focus on cryptography, the Chain of Trust, and bitstream encryption (AES-256) while utilizing **zero-key modes and volatile RAM** to ensure you do not permanently damage or lock down your development board.
 

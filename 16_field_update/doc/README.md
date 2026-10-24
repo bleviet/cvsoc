@@ -1,5 +1,8 @@
 # Phase 10: Network Field Update & Automatic Rollback (No JTAG)
 
+> **Deep-Dive Explanation:** [Explanation — Over-The-Air (OTA) A/B Field Updates, Live Bitstream Hot-Swap, and Automatic Rollback](../../docs/explanation_phase10_ota_field_update_and_rollback.md)  
+> **Related How-To Guide:** [How-To: Create, Sign, and Test Over-The-Air (OTA) Firmware Bundles](../../docs/howto_create_and_test_ota_firmware_bundles.md)
+
 ## Overview
 
 In deployed FPGA+SoC systems, field engineers cannot connect a JTAG cable or physically swap microSD cards to upgrade firmware. The board must:

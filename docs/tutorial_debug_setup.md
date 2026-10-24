@@ -2,7 +2,9 @@
 
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Applies to:** Phases 2 and 3 (04_nios2_led, 05_hps_led)  
-> **Difficulty:** Intermediate — you have completed Phase 2 and/or Phase 3 and have pre-built `.sof` and `.elf` files ready
+> **Difficulty:** Intermediate — you have completed Phase 2 and/or Phase 3 and have pre-built `.sof` and `.elf` files ready  
+> **Deep-Dive Explanations:** [Explanation — JTAG Silicon Architecture, SLD Hub, OpenOCD, and GDB Internals](explanation_phase5_jtag_and_gdb_debugging.md) · [Explanation — How IDE Debugging Works](explanation_ide_debugging.md)  
+> **Related How-To Guides:** [How-To: Troubleshoot JTAG and USB-Blaster](howto_troubleshoot_jtag_and_usb_blaster.md) · [How-To: Program from Windows/WSL2](howto_windows_wsl2_programmer.md)
 
 ---
 

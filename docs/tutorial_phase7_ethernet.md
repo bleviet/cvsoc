@@ -2,7 +2,9 @@
 
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Phase:** 7 of 8  
-> **Difficulty:** Intermediate-Advanced — you have completed phases 0–6 and are comfortable with Buildroot, the Linux `/dev/mem` approach, and the HPS-to-FPGA bridge
+> **Difficulty:** Intermediate-Advanced — you have completed phases 0–6 and are comfortable with Buildroot, the Linux `/dev/mem` approach, and the HPS-to-FPGA bridge  
+> **Deep-Dive Explanation:** [Explanation — Ethernet Networking, IPv6 SLAAC, Nanopb Protobuf, and Web Gateway](explanation_phase7_networking_protobuf_and_dashboard.md)  
+> **Related How-To Guides:** [How-To: Extend Protobuf Schema and Web Dashboard](howto_extend_protobuf_and_web_dashboard.md) · [How-To: Deploy Over Serial and Ethernet](howto_deploy_to_board_over_serial_and_ethernet.md)
 
 ---
 

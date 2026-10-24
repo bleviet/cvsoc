@@ -1,5 +1,7 @@
 # Building an Interactive Register Shell with Embedded C++
 
+> **Deep-Dive Explanation:** [Explanation — Soft-Core Processor Architecture: Nios II, Nios V (RISC-V), and Avalon-MM Interconnect (Section 6: Zero-Overhead C++ Template Register Shells)](../../docs/explanation_phase2_soft_cpu_nios2_and_niosv.md#6-zero-overhead-embedded-c-and-the-register-shell-04b_niosv_led)
+
 This tutorial explains how the `04b_niosv_led` application lets you type
 commands such as:
 

@@ -2,7 +2,8 @@
 
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Type:** Tutorial  
-> **Difficulty:** Intermediate — you are comfortable with the CLI and now need to use visual tools
+> **Difficulty:** Intermediate — you are comfortable with the CLI and now need to use visual tools  
+> **Deep-Dive Explanation:** [Explanation — Docker Containers, Host Isolation, and Multi-Version Quartus Architecture](explanation_docker_and_multi_version_quartus.md)
 
 ---
 

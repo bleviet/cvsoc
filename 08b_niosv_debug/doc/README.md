@@ -1,5 +1,8 @@
 # 08b — Nios V/m Software Debugging with RISC-V GDB
 
+> **Deep-Dive Explanations:** [Explanation — JTAG Silicon Architecture, SLD Hub, OpenOCD, and GDB Internals](../../docs/explanation_phase5_jtag_and_gdb_debugging.md) · [Explanation — How IDE Debugging Works](../../docs/explanation_ide_debugging.md)  
+> **Related How-To Guides:** [How-To: Migrate Nios II to Nios V](../../docs/howto_migrate_nios2_to_niosv.md) · [How-To: VS Code Debugging](../../docs/howto_vscode_debugging.md)
+
 Sibling project to `08_nios2_debug`, demonstrating **interactive GDB debugging**
 of the **Nios V/m** (RISC-V RV32I) soft-core processor. The same hardware design
 as `06b_niosv_interrupts` is reused; the firmware is recompiled with debug

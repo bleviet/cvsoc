@@ -1,5 +1,8 @@
 # 06b — Nios V/m Interrupt Demo
 
+> **Deep-Dive Explanation:** [Explanation — Hardware Interrupt Architectures: Nios II IIC, Nios V CLINT, and ARM GICv1](../../docs/explanation_phase4_interrupt_subsystems.md)  
+> **Related How-To Guide:** [How-To: Migrate Nios II to Nios V](../../docs/howto_migrate_nios2_to_niosv.md)
+
 Sibling project to `06_nios2_interrupts`, demonstrating **hardware interrupt
 handling** on the **Nios V/m** (RISC-V RV32I) soft-core processor. Same
 button-driven ISR firmware, but targeting **Quartus 25.1 only** —

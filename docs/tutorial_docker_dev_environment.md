@@ -2,7 +2,9 @@
 
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Type:** Tutorial (learning-oriented)  
-> **Difficulty:** Beginner-Intermediate — you are comfortable with Docker basics and the Linux command line
+> **Difficulty:** Beginner-Intermediate — you are comfortable with Docker basics and the Linux command line  
+> **Deep-Dive Explanation:** [Explanation — Docker Containers, Host Isolation, and Multi-Version Quartus Architecture](explanation_docker_and_multi_version_quartus.md)  
+> **Related How-To Guides:** [How-To: Troubleshoot JTAG and USB-Blaster](howto_troubleshoot_jtag_and_usb_blaster.md) · [How-To: Program from Windows/WSL2](howto_windows_wsl2_programmer.md)
 
 ---
 

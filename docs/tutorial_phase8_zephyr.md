@@ -7,6 +7,8 @@
 | **Difficulty** | Advanced |
 | **Time** | ~2 hours (excluding downloads) |
 | **Prerequisites** | Phases 1–5 complete; DE10-Nano with FPGA bitstream loaded |
+| **Deep-Dive Explanation** | [Explanation — Zephyr RTOS Architecture, Compile-Time Devicetree, and Preemptive Threading](explanation_phase8_zephyr_rtos_architecture.md) |
+| **Related Reference** | [Zephyr vs Linux Q&A](qa.md) |
 
 ## What you will build
 

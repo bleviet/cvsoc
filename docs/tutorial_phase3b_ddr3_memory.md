@@ -1,6 +1,8 @@
 # Phase 3B — DDR3 Memory
 
-> **Prerequisites:** [Phase 3 — HPS Bare Metal](tutorial_phase3_hps_baremetal.md)
+> **Prerequisites:** [Phase 3 — HPS Bare Metal](tutorial_phase3_hps_baremetal.md)  
+> **Deep-Dive Explanation:** [Explanation — DDR3 Memory Controller, Fault Physics, and FPGA-to-HPS Avalon-MM Masters](explanation_phase3b_ddr3_and_avalon_master.md)  
+> **Related How-To Guide:** [How-To: Fix HPS DDR3 Fitter Error 174068 and AXI Bridge Hangs](howto_fix_hps_ddr3_fitter_and_bridge_errors.md)
 
 This phase teaches DDR3 SDRAM usage on the Cyclone V SoC through two progressively complex tutorials.
 

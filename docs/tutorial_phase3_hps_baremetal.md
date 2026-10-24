@@ -2,7 +2,9 @@
 
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Phase:** 3 of 6  
-> **Difficulty:** Intermediate-Advanced — you have completed phases 0–2 and are comfortable with Platform Designer and the Quartus compilation flow
+> **Difficulty:** Intermediate-Advanced — you have completed phases 0–2 and are comfortable with Platform Designer and the Quartus compilation flow  
+> **Deep-Dive Explanation:** [Explanation — Cyclone V Hard Processor System (HPS), AXI Bridges, and Bare-Metal Boot](explanation_phase3_hps_baremetal_architecture.md)  
+> **Related How-To Guides:** [How-To: Fix HPS DDR3 Fitter Error 174068 and AXI Bridge Hangs](howto_fix_hps_ddr3_fitter_and_bridge_errors.md) · [How-To: Add a Custom Avalon-MM Peripheral](howto_add_custom_avalon_mm_peripheral.md)
 
 ---
 

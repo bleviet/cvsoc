@@ -1,5 +1,8 @@
 # 04b — Nios V/m LED Demo
 
+> **Deep-Dive Explanation:** [Explanation — Soft-Core Processor Architecture: Nios II, Nios V (RISC-V), and Avalon-MM Interconnect](../../docs/explanation_phase2_soft_cpu_nios2_and_niosv.md)  
+> **Related How-To Guides:** [How-To: Migrate Nios II to Nios V](../../docs/howto_migrate_nios2_to_niosv.md) · [How-To: Add a Custom Avalon-MM Peripheral](../../docs/howto_add_custom_avalon_mm_peripheral.md)
+
 Sibling project to `04_nios2_led`, demonstrating the **Nios V/m** (RISC-V RV32I) soft-core
 processor. Same LED-cycling firmware, but targeting **Quartus 25.1 only** — `intel_niosv_m`
 does not exist in 23.1.

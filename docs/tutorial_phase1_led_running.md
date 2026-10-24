@@ -3,7 +3,9 @@
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Phase:** 1 — `01_led_running`  
 > **Difficulty:** Beginner — requires completion of Phase 0 (`00_led_blinking`)  
-> **Time:** ~20 minutes (the design is already built on Phase 0 knowledge)
+> **Time:** ~20 minutes (the design is already built on Phase 0 knowledge)  
+> **Deep-Dive Explanation:** [Explanation — RTL Synthesis, Synchronous Reset, and Timing Closure in Phases 0 & 1](explanation_phase0_phase1_vhdl_and_timing.md)  
+> **Related How-To Guide:** [How-To: Troubleshoot JTAG and USB-Blaster](howto_troubleshoot_jtag_and_usb_blaster.md)
 
 ---
 

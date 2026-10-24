@@ -2,7 +2,9 @@
 
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Phase:** 2 of 6  
-> **Difficulty:** Intermediate — you are comfortable with VHDL and have completed phases 0 and 1
+> **Difficulty:** Intermediate — you are comfortable with VHDL and have completed phases 0 and 1  
+> **Deep-Dive Explanation:** [Explanation — Soft-Core Processor Architecture: Nios II, Nios V (RISC-V), and Avalon-MM Interconnect](explanation_phase2_soft_cpu_nios2_and_niosv.md)  
+> **Related How-To Guides:** [How-To: Add a Custom Avalon-MM Peripheral](howto_add_custom_avalon_mm_peripheral.md) · [How-To: Migrate Nios II to Nios V](howto_migrate_nios2_to_niosv.md)
 
 ---
 

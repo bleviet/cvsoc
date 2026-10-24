@@ -2,7 +2,9 @@
 
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Phase:** 4 of 6  
-> **Difficulty:** Intermediate-Advanced — you have completed phases 0–3 and are comfortable with Platform Designer, the Quartus compile flow, and ARM bare-metal programming
+> **Difficulty:** Intermediate-Advanced — you have completed phases 0–3 and are comfortable with Platform Designer, the Quartus compile flow, and ARM bare-metal programming  
+> **Deep-Dive Explanation:** [Explanation — Hardware Interrupt Architectures: Nios II IIC, Nios V CLINT, and ARM GICv1](explanation_phase4_interrupt_subsystems.md)  
+> **Related How-To Guides:** [How-To: Add a Custom Avalon-MM Peripheral](howto_add_custom_avalon_mm_peripheral.md) · [How-To: Migrate Nios II to Nios V](howto_migrate_nios2_to_niosv.md)
 
 ---
 

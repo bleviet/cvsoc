@@ -3,7 +3,9 @@
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Phase:** 0 — `00_led_blinking`  
 > **Difficulty:** Beginner — no prior FPGA experience required  
-> **Time:** ~30 minutes to first blinking LEDs
+> **Time:** ~30 minutes to first blinking LEDs  
+> **Deep-Dive Explanation:** [Explanation — RTL Synthesis, Synchronous Reset, and Timing Closure in Phases 0 & 1](explanation_phase0_phase1_vhdl_and_timing.md)  
+> **Related How-To Guides:** [How-To: Troubleshoot JTAG and USB-Blaster](howto_troubleshoot_jtag_and_usb_blaster.md) · [How-To: Program from Windows/WSL2](howto_windows_wsl2_programmer.md)
 
 ---
 

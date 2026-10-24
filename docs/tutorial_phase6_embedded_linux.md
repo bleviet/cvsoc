@@ -2,7 +2,9 @@
 
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Phase:** 6 of 8  
-> **Difficulty:** Intermediate-Advanced — you have completed phases 0–5 and are comfortable with Platform Designer, the Quartus compile flow, ARM bare-metal programming, and hardware interrupt handling
+> **Difficulty:** Intermediate-Advanced — you have completed phases 0–5 and are comfortable with Platform Designer, the Quartus compile flow, ARM bare-metal programming, and hardware interrupt handling  
+> **Deep-Dive Explanation:** [Explanation — Embedded Linux Boot Chain, FPGA Manager, and Virtual Memory MMIO](explanation_phase6_embedded_linux_and_fpga_manager.md)  
+> **Related How-To Guide:** [How-To: Deploy Files to the DE10-Nano Over Serial (`zmodem`) and Ethernet (`scp`)](howto_deploy_to_board_over_serial_and_ethernet.md)
 
 ---
 

@@ -2,7 +2,9 @@
 
 > **Series:** cvsoc — Stepping into advanced FPGA development on the DE10-Nano  
 > **Phase:** 5 of 8  
-> **Difficulty:** Intermediate-Advanced — you have completed phases 0–4 and are comfortable with Platform Designer, the Quartus compile flow, ARM bare-metal programming, and hardware interrupt handling
+> **Difficulty:** Intermediate-Advanced — you have completed phases 0–4 and are comfortable with Platform Designer, the Quartus compile flow, ARM bare-metal programming, and hardware interrupt handling  
+> **Deep-Dive Explanations:** [Explanation — JTAG Silicon Architecture, SLD Hub, OpenOCD, and GDB Internals](explanation_phase5_jtag_and_gdb_debugging.md) · [Explanation — How IDE Debugging Works](explanation_ide_debugging.md)  
+> **Related How-To Guides:** [How-To: VS Code Debugging](howto_vscode_debugging.md) · [How-To: Troubleshoot JTAG and USB-Blaster](howto_troubleshoot_jtag_and_usb_blaster.md)
 
 ---
 
