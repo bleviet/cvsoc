@@ -43,6 +43,7 @@ Every tutorial in the repository is paired with an in-depth **Explanation** and 
 | **Phase 8:**<br/>Zephyr RTOS | `12_zephyr_led/` | • [Phase 8: Zephyr RTOS LED Control on DE10-Nano](tutorial_phase8_zephyr.md) | [Explanation: Zephyr RTOS Architecture, Compile-Time Devicetree, and Thread Synchronization](explanation_phase8_zephyr_rtos_architecture.md) | • [Phase 8 Q&A Reference](qa.md)<br/>• [Phase 8 Host Dependencies](INSTALL_DEPS_PHASE8.md) |
 | **Phase 9:**<br/>Cybersecurity & Secure Boot | `13_secure_boot/` | • [Phase 9: Educational Secure Boot (AES-256 + Signed FIT)](../13_secure_boot/doc/README.md) | [Explanation: Embedded Cybersecurity — Bitstream Encryption (AES-256) and Signed U-Boot FIT Images](explanation_phase9_secure_boot_and_crypto.md) | • [Deploy Over Ethernet or Serial](howto_deploy_to_board_over_serial_and_ethernet.md) |
 | **Phase 10:**<br/>Network OTA Field Update | `16_field_update/` | • [Phase 10: Network Field Update & Automatic Rollback (No JTAG)](../16_field_update/doc/README.md) | [Explanation: Atomic A/B Field Updates, Live FPGA Hot-Swap, and Automatic Rollback](explanation_phase10_ota_field_update_and_rollback.md) | • [Create, Test, and Troubleshoot OTA Firmware Bundles and Rollbacks](howto_create_and_test_ota_firmware_bundles.md) |
+| **Phase 11:**<br/>Industrial IIoT & OPC UA | `17_opcua_hps_led/` | • [Phase 11: Industrial IIoT LED Control with OPC UA (`opc.tcp` & Part 14 PubSub)](tutorial_phase11_opcua_industrial.md)<br/>• [17: OPC UA Project Overview](../17_opcua_hps_led/doc/README.md) | [Explanation: Industrial OPC UA Architecture (`opc.tcp` & UADP PubSub) and Comparison with `11_ethernet_hps_led`](explanation_phase11_opcua_and_protocol_comparison.md) | • [Extend the OPC UA Address Space and UADP PubSub (Compared to Protobuf)](howto_extend_opcua_address_space_and_pubsub.md)<br/>• [Access Remote Lab Board via SSH Jump Host (`dev-ubuntu`)](howto_remote_hardware_lab_access_via_ssh_jump_host.md)<br/>• [Deploy Over Ethernet or Serial](howto_deploy_to_board_over_serial_and_ethernet.md) |
 
 ---
 
@@ -71,6 +72,7 @@ Start here if you are learning Cyclone V SoC development step by step from the g
    - [Phase 8 — Zephyr RTOS LED Control on DE10-Nano (`12_zephyr_led`)](tutorial_phase8_zephyr.md)
    - [Phase 9 — Educational Secure Boot: Bitstream Encryption & Signed FIT Images (`13_secure_boot`)](../13_secure_boot/doc/README.md)
    - [Phase 10 — Zero-JTAG Network Field Update & Automatic Rollback (`16_field_update`)](../16_field_update/doc/README.md)
+   - [Phase 11 — Industrial IIoT LED Control with OPC UA (`opc.tcp` & Part 14 UADP PubSub) (`17_opcua_hps_led`)](tutorial_phase11_opcua_industrial.md)
 
 ---
 
@@ -91,6 +93,7 @@ Read these when you want to understand *why* the hardware, silicon, protocols, a
 - [Zephyr RTOS Architecture, Compile-Time Devicetree, and Thread Synchronization (Phase 8)](explanation_phase8_zephyr_rtos_architecture.md)
 - [Embedded Cybersecurity — Bitstream Encryption (AES-256) and Signed U-Boot FIT Images (Phase 9)](explanation_phase9_secure_boot_and_crypto.md)
 - [Atomic A/B Field Updates, Live FPGA Hot-Swap, and Automatic Rollback (Phase 10)](explanation_phase10_ota_field_update_and_rollback.md)
+- [Industrial OPC UA Architecture (`opc.tcp` & Part 14 UADP PubSub) and Comparison with `11_ethernet_hps_led` (Phase 11)](explanation_phase11_opcua_and_protocol_comparison.md)
 
 ---
 
@@ -105,7 +108,9 @@ Use these step-by-step recipes when you have a specific task to accomplish or a 
 - [How-to: Fix HPS DDR3 Fitter Error 174068, Bridge Data Aborts, and Watchdog Resets](howto_fix_hps_ddr3_fitter_and_bridge_errors.md)
 - [How-to: Migrate a Soft-Core Project from Nios II (Quartus 23.1) to Nios V/m RISC-V (Quartus 25.1)](howto_migrate_nios2_to_niosv.md)
 - [How-to: Deploy Binaries, Kernel Modules, and Bitstreams to the DE10-Nano Over Ethernet or Serial](howto_deploy_to_board_over_serial_and_ethernet.md)
+- [How-to: Access and Deploy to a DE10-Nano Connected to a Remote Lab PC (`dev-ubuntu`) via SSH Jump Host & Port Forwarding](howto_remote_hardware_lab_access_via_ssh_jump_host.md)
 - [How-to: Extend the Nanopb Protobuf Schema and Web Dashboard with New Commands](howto_extend_protobuf_and_web_dashboard.md)
+- [How-to: Extend the OPC UA Address Space with New Variables, Methods, and PubSub Telemetry (Compared to Protobuf)](howto_extend_opcua_address_space_and_pubsub.md)
 - [How-to: Create, Test, and Troubleshoot OTA Firmware Bundles and Automatic Rollbacks](howto_create_and_test_ota_firmware_bundles.md)
 - [Field Guide: Deploying to an Embedded Board Without SSH (`11_ethernet_hps_led`)](../11_ethernet_hps_led/doc/deploying_without_ssh.md)
 

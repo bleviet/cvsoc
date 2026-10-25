@@ -1,0 +1,8 @@
+config BR2_PACKAGE_LED_OPCUA_SERVER
+	bool "led-opcua-server"
+	help
+	  Industrial OPC UA Binary Server (opc.tcp port 4840) and Part 14 UADP
+	  PubSub publisher (UDP port 4841) that exposes the DE10-Nano FPGA LED
+	  PIO peripheral as a browsable, self-describing OPC UA Address Space.
+
+	  Phase 11 (17_opcua_hps_led) — Industrial IIoT with OPC UA.

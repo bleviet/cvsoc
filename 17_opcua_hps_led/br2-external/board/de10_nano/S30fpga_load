@@ -1,0 +1,51 @@
+#!/bin/sh
+# /etc/init.d/S30fpga_load — Program the FPGA and enable the LW H2F bridge
+#
+# This script runs after the kernel modules are loaded (S20 in BusyBox init).
+# It uses the fpga_load kernel module which directly programs the FPGA via
+# the FPGA Manager registers and enables the LW H2F bridge.
+
+FIRMWARE="de10_nano.rbf"
+
+start() {
+    printf "Starting FPGA programming... "
+
+    # Check firmware exists
+    if [ ! -f "/lib/firmware/${FIRMWARE}" ]; then
+        echo "FAILED (missing /lib/firmware/${FIRMWARE})"
+        return 1
+    fi
+
+    # Load the fpga_load kernel module (programs FPGA + enables bridges).
+    # Use modprobe so it picks the correct copy from updates/ (depmod order).
+    modprobe fpga_load firmware="${FIRMWARE}"
+    ret=$?
+
+    if [ $ret -ne 0 ]; then
+        echo "FAILED (modprobe returned $ret)"
+        dmesg | grep fpga_load | tail -5
+        return 1
+    fi
+
+    echo "OK"
+    dmesg | grep fpga_load | tail -3
+    return 0
+}
+
+stop() {
+    printf "Stopping fpga_load... "
+    rmmod fpga_load 2>/dev/null || true
+    echo "OK"
+}
+
+case "$1" in
+    start)  start  ;;
+    stop)   stop   ;;
+    restart) stop; start ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit $?

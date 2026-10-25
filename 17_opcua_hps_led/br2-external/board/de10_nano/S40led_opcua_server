@@ -1,0 +1,38 @@
+#!/bin/sh
+# /etc/init.d/S40led_opcua_server — Start the Industrial OPC UA server at boot.
+#
+# Runs after S30fpga_load (FPGA is programmed and LWHPS2FPGA bridge is enabled).
+# Listens on TCP port 4840 (opc.tcp) and emits UADP PubSub frames on UDP 4841.
+
+PORT=4840
+PUBSUB_PORT=4841
+LOGFILE=/var/log/led_opcua_server.log
+PIDFILE=/var/run/led_opcua_server.pid
+
+start() {
+    printf "Starting DE10-Nano OPC UA server (opc.tcp port %d, UADP port %d)... " "$PORT" "$PUBSUB_PORT"
+    led_opcua_server --port "$PORT" --pubsub-port "$PUBSUB_PORT" >> "$LOGFILE" 2>&1 &
+    echo $! > "$PIDFILE"
+    echo "OK (PID $(cat "$PIDFILE"))"
+}
+
+stop() {
+    printf "Stopping DE10-Nano OPC UA server... "
+    if [ -f "$PIDFILE" ]; then
+        kill "$(cat "$PIDFILE")" 2>/dev/null || true
+        rm -f "$PIDFILE"
+    fi
+    echo "OK"
+}
+
+case "$1" in
+    start)   start  ;;
+    stop)    stop   ;;
+    restart) stop; start ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0

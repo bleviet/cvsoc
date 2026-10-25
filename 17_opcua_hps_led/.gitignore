@@ -1,0 +1,7 @@
+buildroot-*/
+*.tar.xz
+de10_nano.rbf
+software/opcua_server/led_opcua_server
+software/opcua_server/led_opcua_server_sim
+__pycache__/
+*.pyc

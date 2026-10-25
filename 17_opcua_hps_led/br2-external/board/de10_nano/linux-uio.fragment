@@ -1,0 +1,20 @@
+# Linux kernel config fragment: enable UIO support for FPGA peripherals.
+# Applied on top of the socfpga_defconfig via BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES.
+
+# Userspace I/O platform driver (for generic-uio compatible devices)
+CONFIG_UIO=y
+CONFIG_UIO_PDRV_GENIRQ=y
+
+# FPGA Manager (for loading bitstreams from Linux)
+CONFIG_FPGA=y
+CONFIG_FPGA_MGR_SOCFPGA=y
+CONFIG_FPGA_BRIDGE=y
+CONFIG_FPGA_REGION=y
+CONFIG_OF_FPGA_REGION=y
+
+# Device tree overlay and configfs support
+CONFIG_OF_OVERLAY=y
+
+# Loadable kernel module support (required for fpga_load.ko)
+CONFIG_MODULES=y
+CONFIG_MODULE_UNLOAD=y

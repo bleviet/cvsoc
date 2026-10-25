@@ -13,6 +13,8 @@ The table below outlines the exact files that must be generated in a previous pr
 | `09_hps_debug` (Phase 5) | `de10_nano.sof` | `07_hps_interrupts` (Phase 4) | The HPS debugging tutorial natively reuses the exact bitstream from the Phase 4 bare-metal HPS project. |
 | `10_linux_led` (Phase 6) | `de10_nano.sof` | `05_hps_led` (Phase 3) | The Embedded Linux phase converts the bitstream from Phase 3 (`.sof`) into a Raw Binary File (`.rbf`) that gets automatically copied onto the generated SD Card image. |
 | `11_ethernet_hps_led` (Phase 7) | `de10_nano.rbf` | `10_linux_led` (Phase 6) | The Ethernet phase's `make rbf` directly copies the `.rbf` bitstream that was converted during Phase 6. |
+| `16_field_update` (Phase 10) | `de10_nano.rbf` | `10_linux_led` (Phase 6) | The OTA field update phase reuses the Phase 6 `.rbf` bitstream inside its A/B firmware bundles. |
+| `17_opcua_hps_led` (Phase 11) | `de10_nano.rbf` | `10_linux_led` (Phase 6) | The Industrial OPC UA phase reuses the Phase 6 `.rbf` bitstream and exposes the `0xFF200000` LED PIO as an OPC UA Address Space. |
 | `12_zephyr_led` (Phase 8) | `u-boot-spl` | `10_linux_led` (Phase 6) | Zephyr relies on the Secondary Program Loader (U-Boot SPL) built by Buildroot in Phase 6 to initialize the DDR memory controller over JTAG before flashing Zephyr. |
 | `12_zephyr_led` (Phase 8) | `de10_nano.sof`/`.rbf` | *Phase 5 or Phase 7* | A runtime dependency: Zephyr expects an FPGA bitstream to be loaded on the board prior to executing its ELF binary. You can use the bitstream from Phase 5 or Phase 7. |
 
