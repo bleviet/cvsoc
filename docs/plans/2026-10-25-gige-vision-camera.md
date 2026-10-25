@@ -42,7 +42,7 @@ A low-cost, open, FPGA-based GigE Vision camera with an on-device ISP and an **H
 | Pixel formats | `Mono8`, `BayerGR8`, `BayerGR12p`, `RGB8` (exact Bayer phase confirmed in M2) |
 | Controls (SFNC names) | `Width`, `Height`, `OffsetX/Y`, `PixelFormat`, `ExposureTime`, `ExposureAuto`, `Gain`, `GainAuto`, `BalanceWhiteAuto`, `AcquisitionMode`, `AcquisitionStart/Stop`, `TriggerMode`, `TriggerSource`, `TriggerSoftware`, `TestPattern` |
 | Timing | 64-bit device timestamp per frame; IEEE 1588 PTP sync to a PC grandmaster; scheduled action commands |
-| I/O | 1× opto-less trigger input, 1× strobe output. The D5M occupies GPIO header JP7, so these go on JP1 or the Arduino header. |
+| I/O | 1× opto-less trigger input, 1× strobe output. The D5M occupies GPIO header JP1, so these go on JP7 or the Arduino header. |
 | Local output | HDMI preview (720p60 baseline) with OSD, focus peaking, zebra, histogram |
 | Field service | A/B OTA update with rollback, signed boot, per-unit calibration storage |
 | Characterization | EMVA 1288-style summary: dark noise, DSNU, dark current, photon transfer (system gain, read noise, full well, dynamic range, linearity). No QE or absolute sensitivity, because there is no calibrated light source. |
@@ -221,7 +221,7 @@ Each milestone ends with a demo and exit criteria. Risk is attacked first.
 |---|---|---|---|
 | **M0** | Throughput spike | UDP blaster on HPS Linux sending from a DDR buffer; jumbo frame test | Measured Mbit/s and packets/s at MTU 1500 and the largest working MTU, plus CPU load. Result recorded in ADR-001. |
 | **M1** | Walking skeleton | `test_pattern` → frame writer → DDR → `camd` GVSP; minimal GVCP + hand-written XML; test pattern → HDMI | `arv-viewer` discovers the camera and shows a moving test pattern; HDMI shows the same pattern. **GigE path done 2026-10-25** (Aravis `arv-test` passes, byte-exact frames). HDMI deferred until a monitor is available. |
-| **M2** | Sensor bring-up | D5M on GPIO header JP7: capture, I2C config, `BayerGR8`, fixed exposure, ROI; sensor → HDMI passthrough | Live sensor image on HDMI and in Aravis; Bayer phase confirmed; no FIFO overflows over 1 h |
+| **M2** | Sensor bring-up | D5M on GPIO header JP1: capture, I2C config, `BayerGR8`, fixed exposure, ROI; sensor → HDMI passthrough | Live sensor image on HDMI and in Aravis; Bayer phase confirmed; no FIFO overflows over 1 h |
 | **M3** | GenICam features | Generated regmap + XML; exposure, gain, ROI, pixel formats, software/hardware trigger, chunk timestamps | All §2 controls work from Aravis; XML validates; regmap freshness check in CI |
 | **M4** | ISP + 3A | Full ISP chain, `RGB8`, auto exposure / auto white balance from FPGA statistics; HDMI stage tap and split screen | Every ISP stage passes golden-model bit-exact tests; AE converges in under 1 s after a lighting step |
 | **M5** | Performance | V4L2 driver with dmabuf zero-copy, packet resend, `BayerGR12p`, DDR port tuning, HDMI frame-buffer reader with scaler and triple-buffering | Full-res `BayerGR8` at sensor-limited fps with <0.01 % resends; DDR budget measured and documented |
@@ -291,7 +291,7 @@ Follows the repo's per-project conventions. Like the FPGA phases, it has its own
 
 ## 13. Resolved Questions (2026-10-25)
 
-1. **GPIO header**: the D5M uses **JP7**. Trigger input and strobe output go on JP1 or the Arduino header; the exact pins are chosen in M3.
+1. **GPIO header**: the D5M uses **JP1** (corrected from JP7 on 2026-10-25). Trigger input and strobe output go on JP7 or the Arduino header; the exact pins are chosen in M3.
 2. **Second board**: none. M6 demonstrates PTP and action commands with one camera synced to a PC grandmaster instead of two-camera sync.
 3. **Generated GenICam XML**: checked into git, with a CI freshness check (ADR-004).
 4. **Light source for EMVA 1288**: none. Characterization is limited to the dark and photon-transfer subset described in §8.
