@@ -111,10 +111,21 @@ uneven (625 + 292 Mbit/s), consistent with contention on the single TX queue.
 1. **End-to-end loss above 274 Mbit/s is unverified**, because the receiver
    was the bottleneck. Repeat the sweep with a ≥1 Gbit/s receiver at MTU 3796
    and confirm <0.01 % loss.
-2. **Frame-buffer memory type.** M0 used a cached `malloc` buffer. The real
-   frame buffer is written by the FPGA over the F2H SDRAM bridge. If it is
-   mapped uncached, the kernel's copy during `sendmsg` will be much slower.
-   M1 must measure `gvsp_blast` against a reserved-memory / dma-buf buffer
-   with explicit cache maintenance before trusting these numbers.
+2. ~~**Frame-buffer memory type.**~~ **Measured 2026-10-25 (risk R8).** The
+   board booted with `mem=960M`, and `gvsp_blast -M 0x3C000000` sent from a
+   `/dev/mem` mapping of the reserved top 64 MB. ARMv7 maps memory outside
+   Linux's RAM uncached. Pause off, batch 32, kernel L2 counters agree:
+
+   | Payload | Cached (`malloc`) | Uncached (`/dev/mem`) | Drop |
+   |---|---|---|---|
+   | 1472 B, MTU 1500 | 568 Mbit/s, 13.8 fps | 411 Mbit/s, 10.0 fps | −28 % |
+   | 3768 B, MTU 3796 | 939–956 Mbit/s, 23 fps | 576–579 Mbit/s, 14.2 fps | −39 % |
+
+   **Consequence:** M1 may stream directly from the uncached reserved region,
+   because 3768-byte packets still reach the ~14 fps full-res `BayerGR8`
+   target, but with no margin. At MTU 1500 it falls short (10 fps). M5 must map
+   the frame buffers cached and invalidate the cache per frame (a small
+   kernel driver with `dma_sync_*`, or `u-dma-buf`), since the F2H SDRAM
+   bridge is not cache-coherent.
 3. The measurements ran beside the image's `led_server`. Repeat on the
    `18_gige_camera` image once it exists.

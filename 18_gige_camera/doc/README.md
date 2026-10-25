@@ -9,7 +9,7 @@ milestones M0–M6, risks) is in
 | Milestone | Status |
 |---|---|
 | **M0: Throughput spike** | Done 2026-10-25: [ADR-001](adr/ADR-001-gvsp-packetization.md) accepted provisionally; end-to-end loss check pending a ≥1 Gbit/s receiver |
-| M1: Walking skeleton (test pattern → GVSP → Aravis, and HDMI) | Not started |
+| **M1: Walking skeleton** | GigE path done 2026-10-25: FPGA test pattern → DDR → `camd` → GVSP passes Aravis's `arv-test`. HDMI output deferred (no monitor yet), see [M1](#m1-walking-skeleton) |
 | M2–M6 | Not started |
 
 Architecture decisions are recorded in [`adr/`](adr/).
@@ -163,20 +163,120 @@ the limit.
 
 ---
 
+## M1: Walking skeleton
+
+A GigE Vision camera that streams an FPGA-generated test pattern and that a
+standard client accepts, with no sensor yet. It proves the architecture end to
+end:
+
+```text
+cam_tpg_writer (FPGA) ──F2H AXI bridge──► DDR 0x3C000000, 13-buffer ring
+        ▲ CSRs on LW bridge 0xFF200000          │ uncached /dev/mem
+        └──────────────── camd --fpga ◄─────────┘
+                            │ GVCP :3956 (discovery, registers, XML, heartbeat)
+                            ▼ GVSP (leader / payload / trailer)
+                     PC: Aravis, client/gev.py
+```
+
+### Pieces
+
+| Piece | Where | Notes |
+|---|---|---|
+| Test-pattern generator + frame writer | `hdl/cam_tpg_writer.vhd` | 8 pixels/clock at 50 MHz. 64-bit Avalon bursts of 16 beats, never crossing 4 KB. A frame is reported done only after every burst's write response. |
+| Platform Designer system | `qsys/hps_system.tcl` | HPS DDR3 settings from `15_ddr3_fpga_hps`, FPGA-to-HPS AXI bridge instead of SDRAM ports ([ADR-008](adr/ADR-008-frame-write-path.md)) |
+| Camera daemon | `software/camd/` | GVCP server and GVSP streamer in C. `--sim` generates frames in software; `--fpga` streams the FPGA's buffers. The GenICam XML is embedded in the binary. |
+| GenICam description | `software/camd/genicam/cvsoc_camera.xml` | SFNC features: sensor/ROI, `PixelFormat` (`Mono8`, `BayerGR8`), `TestPattern`, acquisition, `AcquisitionFrameRate`, `GevSCPSPacketSize`. Validates against GenApi 1.1. |
+| Golden model | `client/tpg_model.py` | One definition of the test pattern, checked against camd's sim source and the RTL |
+| Python GigE Vision client | `client/gev.py`, `client/verify_stream.py` | Debugging and byte-exact stream verification |
+| Aravis acceptance config | `client/arv-test.cfg` | For `arv-test-0.8` |
+
+### Board prerequisites
+
+1. Boot with `mem=960M` so Linux leaves the top 64 MB of DDR to the frame
+   buffers. On the `16_field_update` image this is the `bootargs` line in
+   `boot.scr` on the FAT partition (`/dev/mmcblk0p2`); the original is kept as
+   `boot.scr.orig`. `camd --fpga` refuses to start if the region overlaps
+   Linux RAM.
+2. An image with dropbear and the `fpga_load` module (`10`/`11`/`16`/`17`).
+
+### Procedure
+
+```bash
+cd 18_gige_camera
+make test                   # camd protocol tests, no board (18 tests)
+make sim                    # RTL tests with GHDL, SENSOR_WIDTH 640 and 2592 (2 x 8 tests)
+make fpga                   # Platform Designer + Quartus + compressed .rbf (~9 min)
+make load-fpga HOST=de10nano
+make run-camd HOST=de10nano
+
+# On a PC on the board's link:
+python3 client/verify_stream.py --host 192.168.10.2 --frames 4 --fps 3
+arv-camera-test-0.8 -n 192.168.10.2 -f 3
+arv-test-0.8 -c client/arv-test.cfg -n "cvsoc*"
+```
+
+### Results (2026-10-25)
+
+- **Byte-exact path:** `verify_stream.py` received full-res moving-ramp frames
+  (consecutive n = 0, 1, 2, 3) and ROI color bars in `BayerGR8` and `Mono8`,
+  each identical to `tpg_model.py`.
+- **Aravis 0.8.30:** `arv-camera-test` streamed 36 full-res frames at 3 fps
+  with 0 missing frames, 0 missing packets and 0 resend requests. `arv-test`
+  passes every applicable test: XML load, sensor size, continuous acquisition
+  10/10 at 3.00 Hz and 2.50 Hz, single acquisition, GigE Vision interface and
+  stream-channel checks.
+- **FPGA:** 703 ALMs (2 %), timing met at 50 MHz (+0.93 ns setup). The writer
+  moves about 266 MB/s through the bridge, so a full 5 MP frame takes ~19 ms.
+- Rates were limited to 3 fps by the lab receiver (USB 2.0 adapter,
+  ~270 Mbit/s), not by the camera.
+
+### Findings along the way
+
+- **`arv-test` 0.8.30 validates "1.1" against the GenApi 1.0 schema**, so a
+  1.1 document always fails its Schema test. The XML is checked against 1.1
+  in `client/test_camd.py` instead.
+- `arv-test`'s acquisition tests wait 500 ms per buffer, so test rates must
+  stay well above 2 Hz.
+- RTL simulation caught a race where enabling the writer during a frame reset
+  `FRAME_COUNT` one frame late.
+- **The board's MAC address changes on every boot** (the image doesn't set
+  one). A product needs a stable, per-unit MAC; this goes into the M6
+  calibration/identity store.
+
+### Open (M1)
+
+- **HDMI output** (test pattern → HDMI, ADV7513 bring-up) needs a monitor to
+  verify. It is deferred until one is available.
+- The pixel generator is one combinational path. Pipeline it before raising
+  the clock for the sensor in M2.
+
+---
+
 ## Layout
 
 ```text
 18_gige_camera/
-├── Makefile                 # M0 targets (help lists them)
+├── Makefile                 # all targets (make help)
 ├── doc/
 │   ├── README.md            # this file
 │   └── adr/                 # architecture decision records
-├── software/spike/          # gvsp_blast.c, gvsp_sink.c, eth_pause.c, spike_common.h
+├── hdl/                     # cam_tpg_writer.vhd, de10_nano_top.vhd
+├── qsys/                    # hps_system.tcl, cam_tpg_writer_hw.tcl
+├── quartus/                 # project/pin/timing TCL, Makefile (Quartus flow)
+├── sim/                     # cocotb tests (run.py, test_cam_tpg_writer.py)
+├── software/
+│   ├── camd/                # GigE Vision camera daemon + GenICam XML
+│   └── spike/               # M0: gvsp_blast.c, gvsp_sink.c, eth_pause.c
 ├── client/
-│   ├── test_spike.py        # loopback self-test (make test)
-│   └── m0_sweep.py          # board sweep + MTU probe (local or remote sink)
+│   ├── gev.py               # minimal GVCP/GVSP client
+│   ├── tpg_model.py         # test-pattern golden model
+│   ├── test_camd.py         # camd protocol tests (make test)
+│   ├── verify_stream.py     # byte-exact stream check against a live camera
+│   ├── arv-test.cfg         # Aravis acceptance configuration
+│   ├── test_spike.py        # M0 loopback self-test
+│   └── m0_sweep.py          # M0 board sweep + MTU probe
 └── results/                 # m0_sweep.py output (JSON lines, one run per line)
 ```
 
-The directories for later milestones (`hdl/`, `sim/`, `qsys/`, `quartus/`,
-`regmap/`, `br2-external/`) are added as each milestone starts.
+Directories for later milestones (`regmap/`, `br2-external/`) are added as
+each milestone starts.

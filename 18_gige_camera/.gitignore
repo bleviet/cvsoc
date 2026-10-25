@@ -1,3 +1,36 @@
 software/spike/build/
+software/camd/build/
 client/__pycache__/
 *.pyc
+
+# Quartus generated/build output
+quartus/db/
+quartus/incremental_db/
+quartus/output_files/
+quartus/hps_isw_handoff/
+quartus/*.qpf
+quartus/*.qsf
+quartus/*.qws
+quartus/*.rpt
+quartus/*.summary
+quartus/*.done
+quartus/*.smsg
+quartus/*.jdi
+quartus/*.pin
+quartus/*.sld
+quartus/*.sof
+quartus/*.rbf
+quartus/*.txt
+quartus/*.csv
+quartus/.qsys_edit/
+
+# Platform Designer generated output (source is qsys/hps_system.tcl)
+qsys/hps_system/
+qsys/hps_system.qsys
+qsys/hps_system.sopcinfo
+qsys/.qsys_edit/
+
+# cocotb / GHDL
+sim/sim_build/
+sim/results.xml
+sim/__pycache__/

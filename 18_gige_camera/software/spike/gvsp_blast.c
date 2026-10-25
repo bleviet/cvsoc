@@ -10,8 +10,15 @@
  * buffer), the same shape a real GVSP streamer has, so the kernel's copy
  * from the frame buffer is part of the measured cost.
  *
+ * With -M, the frame buffer is a /dev/mem mapping of physical memory that
+ * Linux does not manage (e.g. above a mem= limit), which is how an
+ * FPGA-written frame buffer looks before a proper driver exists. ARMv7
+ * maps such memory uncached, so this measures the worst case for the
+ * kernel's copy (risk R8 in the plan).
+ *
  * Usage:
- *   gvsp_blast -d <pc-ip> [-s payload] [-b batch] [-t seconds] [-r mbps] [-j]
+ *   gvsp_blast -d <pc-ip> [-s payload] [-b batch] [-t seconds] [-r mbps]
+ *              [-M phys-addr] [-j]
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -19,6 +26,8 @@
 #include <getopt.h>
 #include <netinet/in.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -39,6 +48,7 @@ struct opts {
     double      rate_mbps;     /* 0 = unlimited */
     int         batch;
     size_t      frame_bytes;
+    unsigned long phys_addr;   /* 0 = malloc'd (cached) frame buffer */
     int         sndbuf;
     int         json;
 };
@@ -71,6 +81,7 @@ static void usage(const char *argv0)
             "  -r MBPS    pace to this UDP payload rate, 0 = unlimited (default 0)\n"
             "  -f BYTES   synthetic frame size (default %u = 2592x1944 Bayer8)\n"
             "  -B BYTES   SO_SNDBUF (default 4194304)\n"
+            "  -M ADDR    send from /dev/mem at this physical address (uncached)\n"
             "  -j         print a JSON summary line on stdout\n",
             argv0, SPIKE_DEFAULT_PORT, SPIKE_HDR_LEN, DEFAULT_PAYLOAD,
             MAX_BATCH, DEFAULT_FRAME_BYTES);
@@ -85,7 +96,7 @@ static int parse_opts(int argc, char **argv, struct opts *o)
         .duration_s = 10.0, .batch = 1, .frame_bytes = DEFAULT_FRAME_BYTES,
         .sndbuf = 4 * 1024 * 1024,
     };
-    while ((c = getopt(argc, argv, "d:p:s:b:t:r:f:B:jh")) != -1) {
+    while ((c = getopt(argc, argv, "d:p:s:b:t:r:f:B:M:jh")) != -1) {
         switch (c) {
         case 'd': o->dest = optarg; break;
         case 'p': o->port = atoi(optarg); break;
@@ -95,6 +106,7 @@ static int parse_opts(int argc, char **argv, struct opts *o)
         case 'r': o->rate_mbps = atof(optarg); break;
         case 'f': o->frame_bytes = strtoul(optarg, NULL, 0); break;
         case 'B': o->sndbuf = atoi(optarg); break;
+        case 'M': o->phys_addr = strtoul(optarg, NULL, 0); break;
         case 'j': o->json = 1; break;
         default:  return -1;
         }
@@ -188,12 +200,28 @@ int main(int argc, char **argv)
     }
     data_per_pkt = (size_t)o.payload - SPIKE_HDR_LEN;
 
-    /* Touch every page so first-access faults are not part of the measurement. */
-    frame = malloc(o.frame_bytes);
-    if (!frame) {
-        perror("malloc");
-        return 1;
+    if (o.phys_addr) {
+        int memfd = open("/dev/mem", O_RDWR | O_SYNC);
+
+        if (memfd < 0) {
+            perror("/dev/mem");
+            return 1;
+        }
+        frame = mmap(NULL, o.frame_bytes, PROT_READ | PROT_WRITE, MAP_SHARED,
+                     memfd, (off_t)o.phys_addr);
+        close(memfd);
+        if (frame == MAP_FAILED) {
+            perror("mmap /dev/mem");
+            return 1;
+        }
+    } else {
+        frame = malloc(o.frame_bytes);
+        if (!frame) {
+            perror("malloc");
+            return 1;
+        }
     }
+    /* Touch every page so first-access faults are not part of the measurement. */
     for (size_t i = 0; i < o.frame_bytes; i++)
         frame[i] = (unsigned char)i;
 
@@ -302,12 +330,12 @@ int main(int argc, char **argv)
 
     if (o.json) {
         printf("{\"tool\":\"gvsp_blast\",\"payload\":%d,\"batch\":%d,"
-               "\"frame_bytes\":%zu,\"rate_limit_mbps\":%.1f,\"duration_s\":%.3f,"
-               "\"packets\":%llu,\"bytes\":%llu,\"frames\":%u,"
+               "\"frame_bytes\":%zu,\"phys_addr\":%lu,\"rate_limit_mbps\":%.1f,"
+               "\"duration_s\":%.3f,\"packets\":%llu,\"bytes\":%llu,\"frames\":%u,"
                "\"payload_mbps\":%.2f,\"wire_mbps\":%.2f,\"pps\":%.0f,"
                "\"fps\":%.3f,\"enobufs\":%llu,\"refused\":%llu,"
                "\"proc_cpu_pct\":%.1f,",
-               o.payload, o.batch, o.frame_bytes, o.rate_mbps, elapsed,
+               o.payload, o.batch, o.frame_bytes, o.phys_addr, o.rate_mbps, elapsed,
                (unsigned long long)packets, (unsigned long long)bytes,
                cur.frame_id,
                (double)bytes * 8.0 / elapsed / 1e6,
@@ -320,6 +348,9 @@ int main(int argc, char **argv)
     }
 
     close(fd);
-    free(frame);
+    if (o.phys_addr)
+        munmap(frame, o.frame_bytes);
+    else
+        free(frame);
     return 0;
 }

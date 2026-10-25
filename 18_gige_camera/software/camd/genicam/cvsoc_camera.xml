@@ -1,0 +1,451 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  cvsoc_camera.xml — GenICam GenApi description of the cvsoc DE10-Nano camera.
+
+  M1: hand-written. From M3 this file is generated from the register map
+  (regmap/camera.mm.yml, ADR-004) and checked in. Register addresses must
+  match software/camd/camera.h.
+-->
+<RegisterDescription
+    ModelName="DE10NanoGigECamera"
+    VendorName="cvsoc"
+    ToolTip="cvsoc DE10-Nano GigE Vision camera"
+    StandardNameSpace="GEV"
+    SchemaMajorVersion="1"
+    SchemaMinorVersion="1"
+    SchemaSubMinorVersion="0"
+    MajorVersion="0"
+    MinorVersion="1"
+    SubMinorVersion="0"
+    ProductGuid="8D3F6C1A-2B4E-4F7A-9C11-5E0A7B3D2F01"
+    VersionGuid="1C7E9A42-6D3B-4E85-A0F2-9B4C8D6E1A01"
+    xmlns="http://www.genicam.org/GenApi/Version_1_1"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.genicam.org/GenApi/Version_1_1 http://www.genicam.org/GenApi/GenApiSchema_Version_1_1.xsd">
+
+  <Category Name="Root" NameSpace="Standard">
+    <pFeature>DeviceControl</pFeature>
+    <pFeature>ImageFormatControl</pFeature>
+    <pFeature>AcquisitionControl</pFeature>
+    <pFeature>TransportLayerControl</pFeature>
+  </Category>
+
+  <!-- ── DeviceControl ─────────────────────────────────────────────────── -->
+  <Category Name="DeviceControl" NameSpace="Standard">
+    <pFeature>DeviceVendorName</pFeature>
+    <pFeature>DeviceModelName</pFeature>
+    <pFeature>DeviceVersion</pFeature>
+    <pFeature>DeviceManufacturerInfo</pFeature>
+    <pFeature>DeviceSerialNumber</pFeature>
+    <pFeature>DeviceUserID</pFeature>
+  </Category>
+
+  <StringReg Name="DeviceVendorName" NameSpace="Standard">
+    <Address>0x48</Address>
+    <Length>32</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+  </StringReg>
+
+  <StringReg Name="DeviceModelName" NameSpace="Standard">
+    <Address>0x68</Address>
+    <Length>32</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+  </StringReg>
+
+  <StringReg Name="DeviceVersion" NameSpace="Standard">
+    <Address>0x88</Address>
+    <Length>32</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+  </StringReg>
+
+  <StringReg Name="DeviceManufacturerInfo" NameSpace="Standard">
+    <Address>0xA8</Address>
+    <Length>48</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+  </StringReg>
+
+  <StringReg Name="DeviceSerialNumber" NameSpace="Standard">
+    <Address>0xD8</Address>
+    <Length>16</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+  </StringReg>
+
+  <StringReg Name="DeviceUserID" NameSpace="Standard">
+    <Address>0xE8</Address>
+    <Length>16</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+  </StringReg>
+
+  <!-- ── ImageFormatControl ────────────────────────────────────────────── -->
+  <Category Name="ImageFormatControl" NameSpace="Standard">
+    <pFeature>SensorWidth</pFeature>
+    <pFeature>SensorHeight</pFeature>
+    <pFeature>WidthMax</pFeature>
+    <pFeature>HeightMax</pFeature>
+    <pFeature>Width</pFeature>
+    <pFeature>Height</pFeature>
+    <pFeature>OffsetX</pFeature>
+    <pFeature>OffsetY</pFeature>
+    <pFeature>PixelFormat</pFeature>
+    <pFeature>TestPattern</pFeature>
+  </Category>
+
+  <IntReg Name="SensorWidth" NameSpace="Standard">
+    <ToolTip>Effective sensor width in pixels.</ToolTip>
+    <Address>0x10000</Address>
+    <Length>4</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <IntReg Name="SensorHeight" NameSpace="Standard">
+    <ToolTip>Effective sensor height in pixels.</ToolTip>
+    <Address>0x10004</Address>
+    <Length>4</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <IntReg Name="WidthMax" NameSpace="Standard">
+    <Address>0x10000</Address>
+    <Length>4</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <IntReg Name="HeightMax" NameSpace="Standard">
+    <Address>0x10004</Address>
+    <Length>4</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Integer Name="Width" NameSpace="Standard">
+    <ToolTip>Image width in pixels.</ToolTip>
+    <pValue>WidthReg</pValue>
+    <Min>64</Min>
+    <pMax>WidthLimit</pMax>
+    <Inc>8</Inc>
+  </Integer>
+
+  <IntSwissKnife Name="WidthLimit">
+    <pVariable Name="WMAX">WidthMax</pVariable>
+    <pVariable Name="OX">OffsetX</pVariable>
+    <Formula>WMAX - OX</Formula>
+  </IntSwissKnife>
+
+  <IntReg Name="WidthReg">
+    <Address>0x10008</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Integer Name="Height" NameSpace="Standard">
+    <ToolTip>Image height in pixels.</ToolTip>
+    <pValue>HeightReg</pValue>
+    <Min>2</Min>
+    <pMax>HeightLimit</pMax>
+    <Inc>2</Inc>
+  </Integer>
+
+  <IntSwissKnife Name="HeightLimit">
+    <pVariable Name="HMAX">HeightMax</pVariable>
+    <pVariable Name="OY">OffsetY</pVariable>
+    <Formula>HMAX - OY</Formula>
+  </IntSwissKnife>
+
+  <IntReg Name="HeightReg">
+    <Address>0x1000C</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Integer Name="OffsetX" NameSpace="Standard">
+    <pValue>OffsetXReg</pValue>
+    <Min>0</Min>
+    <pMax>OffsetXLimit</pMax>
+    <Inc>8</Inc>
+  </Integer>
+
+  <IntSwissKnife Name="OffsetXLimit">
+    <pVariable Name="WMAX">WidthMax</pVariable>
+    <pVariable Name="W">WidthReg</pVariable>
+    <Formula>WMAX - W</Formula>
+  </IntSwissKnife>
+
+  <IntReg Name="OffsetXReg">
+    <Address>0x10010</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Integer Name="OffsetY" NameSpace="Standard">
+    <pValue>OffsetYReg</pValue>
+    <Min>0</Min>
+    <pMax>OffsetYLimit</pMax>
+    <Inc>2</Inc>
+  </Integer>
+
+  <IntSwissKnife Name="OffsetYLimit">
+    <pVariable Name="HMAX">HeightMax</pVariable>
+    <pVariable Name="H">HeightReg</pVariable>
+    <Formula>HMAX - H</Formula>
+  </IntSwissKnife>
+
+  <IntReg Name="OffsetYReg">
+    <Address>0x10014</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Enumeration Name="PixelFormat" NameSpace="Standard">
+    <EnumEntry Name="Mono8" NameSpace="Standard">
+      <Value>0x01080001</Value>
+    </EnumEntry>
+    <EnumEntry Name="BayerGR8" NameSpace="Standard">
+      <Value>0x01080008</Value>
+    </EnumEntry>
+    <pValue>PixelFormatReg</pValue>
+  </Enumeration>
+
+  <IntReg Name="PixelFormatReg">
+    <Address>0x10018</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Enumeration Name="TestPattern" NameSpace="Standard">
+    <ToolTip>Test image. Off shows the sensor image (black until the sensor is supported).</ToolTip>
+    <EnumEntry Name="Off" NameSpace="Standard">
+      <Value>0</Value>
+    </EnumEntry>
+    <EnumEntry Name="GreyHorizontalRampMoving" NameSpace="Standard">
+      <Value>1</Value>
+    </EnumEntry>
+    <EnumEntry Name="ColorBar" NameSpace="Standard">
+      <Value>2</Value>
+    </EnumEntry>
+    <pValue>TestPatternReg</pValue>
+  </Enumeration>
+
+  <IntReg Name="TestPatternReg">
+    <Address>0x10030</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <!-- ── AcquisitionControl ────────────────────────────────────────────── -->
+  <Category Name="AcquisitionControl" NameSpace="Standard">
+    <pFeature>AcquisitionMode</pFeature>
+    <pFeature>AcquisitionStart</pFeature>
+    <pFeature>AcquisitionStop</pFeature>
+    <pFeature>AcquisitionFrameRate</pFeature>
+  </Category>
+
+  <Enumeration Name="AcquisitionMode" NameSpace="Standard">
+    <EnumEntry Name="Continuous" NameSpace="Standard">
+      <Value>0</Value>
+    </EnumEntry>
+    <pValue>AcquisitionModeReg</pValue>
+  </Enumeration>
+
+  <IntReg Name="AcquisitionModeReg">
+    <Address>0x10020</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Command Name="AcquisitionStart" NameSpace="Standard">
+    <pValue>AcquisitionStartReg</pValue>
+    <CommandValue>1</CommandValue>
+  </Command>
+
+  <IntReg Name="AcquisitionStartReg">
+    <Address>0x10024</Address>
+    <Length>4</Length>
+    <AccessMode>WO</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Command Name="AcquisitionStop" NameSpace="Standard">
+    <pValue>AcquisitionStopReg</pValue>
+    <CommandValue>1</CommandValue>
+  </Command>
+
+  <IntReg Name="AcquisitionStopReg">
+    <Address>0x10028</Address>
+    <Length>4</Length>
+    <AccessMode>WO</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Float Name="AcquisitionFrameRate" NameSpace="Standard">
+    <pValue>AcquisitionFrameRateReg</pValue>
+    <Min>1.0</Min>
+    <Max>60.0</Max>
+    <Unit>Hz</Unit>
+  </Float>
+
+  <FloatReg Name="AcquisitionFrameRateReg">
+    <Address>0x1002C</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Endianess>BigEndian</Endianess>
+  </FloatReg>
+
+  <!-- ── TransportLayerControl ─────────────────────────────────────────── -->
+  <Category Name="TransportLayerControl" NameSpace="Standard">
+    <pFeature>PayloadSize</pFeature>
+    <pFeature>GevSCPSPacketSize</pFeature>
+    <pFeature>GevSCPSDoNotFragment</pFeature>
+    <pFeature>GevSCPD</pFeature>
+    <pFeature>GevHeartbeatTimeout</pFeature>
+    <pFeature>GevTimestampTickFrequency</pFeature>
+    <pFeature>GevFramesSent</pFeature>
+  </Category>
+
+  <IntReg Name="PayloadSize" NameSpace="Standard">
+    <Address>0x1001C</Address>
+    <Length>4</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+    <Cachable>NoCache</Cachable>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Integer Name="TLParamsLocked" NameSpace="Standard">
+    <Visibility>Invisible</Visibility>
+    <pValue>TLParamsLockedReg</pValue>
+    <Min>0</Min>
+    <Max>1</Max>
+  </Integer>
+
+  <IntReg Name="TLParamsLockedReg">
+    <Address>0x10034</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Integer Name="GevSCPSPacketSize" NameSpace="Standard">
+    <ToolTip>Stream packet size in bytes, including IP, UDP and GVSP headers.</ToolTip>
+    <pValue>GevSCPSPacketSizeReg</pValue>
+    <Min>576</Min>
+    <Max>9000</Max>
+    <Inc>4</Inc>
+  </Integer>
+
+  <MaskedIntReg Name="GevSCPSPacketSizeReg">
+    <Address>0xD04</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Cachable>NoCache</Cachable>
+    <LSB>31</LSB>
+    <MSB>16</MSB>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </MaskedIntReg>
+
+  <Boolean Name="GevSCPSDoNotFragment" NameSpace="Standard">
+    <pValue>GevSCPSDoNotFragmentReg</pValue>
+  </Boolean>
+
+  <MaskedIntReg Name="GevSCPSDoNotFragmentReg">
+    <Address>0xD04</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Cachable>NoCache</Cachable>
+    <Bit>1</Bit>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </MaskedIntReg>
+
+  <IntReg Name="GevSCPD" NameSpace="Standard">
+    <ToolTip>Inter-packet delay in timestamp ticks (not applied in M1).</ToolTip>
+    <Address>0xD08</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <IntReg Name="GevHeartbeatTimeout" NameSpace="Standard">
+    <Address>0x938</Address>
+    <Length>4</Length>
+    <AccessMode>RW</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+    <Unit>ms</Unit>
+  </IntReg>
+
+  <IntReg Name="GevTimestampTickFrequency" NameSpace="Standard">
+    <Address>0x93C</Address>
+    <Length>8</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+    <Unit>Hz</Unit>
+  </IntReg>
+
+  <IntReg Name="GevFramesSent" NameSpace="Custom">
+    <ToolTip>Frames transmitted since start (diagnostics).</ToolTip>
+    <Address>0x10038</Address>
+    <Length>4</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+    <Cachable>NoCache</Cachable>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <Port Name="Device" NameSpace="Standard"/>
+
+</RegisterDescription>
