@@ -1,0 +1,3 @@
+software/spike/build/
+client/__pycache__/
+*.pyc
