@@ -41,11 +41,11 @@ A low-cost, open, FPGA-based GigE Vision camera with an on-device ISP and an **H
 | Frame rate | ≈14 fps full resolution (sensor limit); higher with ROI / skipping |
 | Pixel formats | `Mono8`, `BayerGR8`, `BayerGR12p`, `RGB8` (exact Bayer phase confirmed in M2) |
 | Controls (SFNC names) | `Width`, `Height`, `OffsetX/Y`, `PixelFormat`, `ExposureTime`, `ExposureAuto`, `Gain`, `GainAuto`, `BalanceWhiteAuto`, `AcquisitionMode`, `AcquisitionStart/Stop`, `TriggerMode`, `TriggerSource`, `TriggerSoftware`, `TestPattern` |
-| Timing | 64-bit device timestamp per frame; IEEE 1588 PTP sync; scheduled action commands |
-| I/O | 1× opto-less trigger input, 1× strobe output on a free GPIO header pin |
+| Timing | 64-bit device timestamp per frame; IEEE 1588 PTP sync to a PC grandmaster; scheduled action commands |
+| I/O | 1× opto-less trigger input, 1× strobe output. The D5M occupies GPIO header JP7, so these go on JP1 or the Arduino header. |
 | Local output | HDMI preview (720p60 baseline) with OSD, focus peaking, zebra, histogram |
 | Field service | A/B OTA update with rollback, signed boot, per-unit calibration storage |
-| Characterization | Published EMVA 1288 summary sheet |
+| Characterization | EMVA 1288-style summary: dark noise, DSNU, dark current, photon transfer (system gain, read noise, full well, dynamic range, linearity). No QE or absolute sensitivity, because there is no calibrated light source. |
 
 ---
 
@@ -67,6 +67,8 @@ sensor → FPGA capture/ISP → F2H SDRAM bridge → DDR3 frame buffer → EMAC 
 | Full-res `RGB8` | 15.1 MB | network-limited to ~7 fps | Rate-limited |
 
 The wire is not the most likely bottleneck. **The 800 MHz Cortex-A9 sending UDP packets is.** At 1500-byte MTU, line rate means roughly 75k packets/s. Jumbo frames cut that by about 5×, but only if the EMAC FIFO configuration and the `stmmac` driver allow it. M0 exists to measure this.
+
+> **M0 result (2026-10-25, [ADR-001](../../18_gige_camera/doc/adr/ADR-001-gvsp-packetization.md))**: one core sends 585 Mbit/s at MTU 1500 (full-res `BayerGR8` ≈ 14 fps) and 936 Mbit/s at the EMAC's maximum MTU of 3796. True 9000-byte jumbo frames are not possible. CPU per byte, not the wire, is the limit.
 
 ### DDR3 budget (est., to be measured in M5)
 
@@ -170,7 +172,7 @@ For M1–M2, wire `test_pattern` / `d5m_capture` → small crop / line buffer �
 | `camd` (C, like the servers in `11_*` and `17_*`) | GVCP server: discovery, bootstrap registers, `READREG`/`WRITEREG`/`READMEM`/`WRITEMEM`, control channel privilege, heartbeat. GVSP streamer: leader/payload/trailer packets, block IDs, packet resend. 3A control loop. |
 | GenICam XML | **Generated** from the register map (see §7) and served via the bootstrap "first URL" register |
 | `d5m-capture` V4L2 driver (M5) | Media controller graph (sensor subdev → ISP subdev → capture video node), dmabuf export so `camd` sends packets without copying |
-| `ptp4l` / `phc2sys` | Hardware timestamping on the EMAC. Steers the FPGA timestamp counter. |
+| `ptp4l` / `phc2sys` | Hardware timestamping on the EMAC (confirmed in M0: "IEEE 1588-2008 Advanced Timestamp supported"). The camera is a PTP client of a PC grandmaster and steers the FPGA timestamp counter. |
 | `ota_daemon` | Reused from [`16_field_update`](../../16_field_update/doc/README.md) for A/B bundles (`.rbf` + `camd` + XML) |
 | Secure boot | Reused from [`13_secure_boot`](../../13_secure_boot/doc/README.md) |
 | Calibration store | Per-unit defect map, black level, CCM, serial number, MAC. Read at boot and written to CSRs. |
@@ -189,7 +191,7 @@ Extend the IPCraft YAML approach first used in [`15_ddr3_fpga_hps/ddr3_test_mast
 3. The **GenICam GenApi XML**: each SFNC feature maps to registers and fields, with min/max/increment and access mode.
 4. The Markdown register reference in `doc/`.
 
-CI fails if any generated artifact is stale. In camera companies, the generated XML is where hardware and software meet. Keeping it generated prevents an entire class of field bugs.
+Generated artifacts, including the GenICam XML, are **checked into git** so that reviews show diffs of the camera's public interface. CI regenerates them and fails if anything is stale. In camera companies, the generated XML is where hardware and software meet. Keeping it generated prevents an entire class of field bugs.
 
 ---
 
@@ -203,7 +205,7 @@ CI fails if any generated artifact is stale. In camera companies, the generated 
 | GenICam XML | Schema validation and a load test with the GenApi reference implementation / Aravis |
 | System | Hardware-in-the-loop rig: board + monitor + camera pointed at its own HDMI output displaying known patterns (closed-loop self-test). Expect rolling-shutter banding against the monitor refresh. |
 | Performance | fps, dropped and resent packets, CPU load, DDR bandwidth counters, glass-to-glass latency (film an on-screen frame counter) |
-| Image quality | EMVA 1288 measurements (photon transfer, temporal noise, dark current, DSNU/PRNU) with a uniform light source |
+| Image quality | EMVA 1288-style measurements without a calibrated source. Dark measurements (lens cap): read noise, DSNU, dark current vs. exposure time. Photon transfer by the mean–variance method, which needs a stable, uniform source but not a calibrated one: system gain K, full well, dynamic range, linearity. The source is the HDMI monitor showing flat white at full backlight (to avoid PWM flicker) through a diffuser, or white paper under steady light. PRNU is best-effort. QE and absolute sensitivity are out of scope. |
 
 ### CI
 
@@ -219,11 +221,11 @@ Each milestone ends with a demo and exit criteria. Risk is attacked first.
 |---|---|---|---|
 | **M0** | Throughput spike | UDP blaster on HPS Linux sending from a DDR buffer; jumbo frame test | Measured Mbit/s and packets/s at MTU 1500 and the largest working MTU, plus CPU load. Result recorded in ADR-001. |
 | **M1** | Walking skeleton | `test_pattern` → frame writer → DDR → `camd` GVSP; minimal GVCP + hand-written XML; test pattern → HDMI | `arv-viewer` discovers the camera and shows a moving test pattern; HDMI shows the same pattern |
-| **M2** | Sensor bring-up | D5M capture, I2C config, `BayerGR8`, fixed exposure, ROI; sensor → HDMI passthrough | Live sensor image on HDMI and in Aravis; Bayer phase confirmed; no FIFO overflows over 1 h |
+| **M2** | Sensor bring-up | D5M on GPIO header JP7: capture, I2C config, `BayerGR8`, fixed exposure, ROI; sensor → HDMI passthrough | Live sensor image on HDMI and in Aravis; Bayer phase confirmed; no FIFO overflows over 1 h |
 | **M3** | GenICam features | Generated regmap + XML; exposure, gain, ROI, pixel formats, software/hardware trigger, chunk timestamps | All §2 controls work from Aravis; XML validates; regmap freshness check in CI |
 | **M4** | ISP + 3A | Full ISP chain, `RGB8`, auto exposure / auto white balance from FPGA statistics; HDMI stage tap and split screen | Every ISP stage passes golden-model bit-exact tests; AE converges in under 1 s after a lighting step |
 | **M5** | Performance | V4L2 driver with dmabuf zero-copy, packet resend, `BayerGR12p`, DDR port tuning, HDMI frame-buffer reader with scaler and triple-buffering | Full-res `BayerGR8` at sensor-limited fps with <0.01 % resends; DDR budget measured and documented |
-| **M6** | Product | PTP + action commands (two boards if available), OTA, secure boot, calibration store, factory self-test, HDMI installer features (focus peaking, zebra, OSD), EMVA 1288 sheet, latency numbers | Datasheet in `doc/` filled with measured values; OTA round-trip with rollback passes |
+| **M6** | Product | PTP client of a PC grandmaster + scheduled action commands (single camera), OTA, secure boot, calibration store, factory self-test, HDMI installer features (focus peaking, zebra, OSD), EMVA 1288-style sheet, latency numbers | PTP offset to grandmaster measured and documented; an action command triggers exposure at the scheduled time (verified against the frame timestamp); datasheet in `doc/` filled with measured values; OTA round-trip with rollback passes |
 
 ---
 
@@ -246,7 +248,7 @@ Follows the repo's per-project conventions. Like the FPGA phases, it has its own
 ├── software/
 │   ├── camd/                # GVCP/GVSP daemon (supports --sim)
 │   └── d5m_capture/         # V4L2 driver (M5)
-├── genicam/                 # generated XML (gitignored or checked-in, decided in ADR-004)
+├── genicam/                 # generated XML, checked in; CI verifies it is fresh (ADR-004)
 ├── br2-external/
 ├── client/                  # Aravis / harvesters test scripts
 └── tools/emva1288/          # characterization scripts
@@ -258,10 +260,10 @@ Follows the repo's per-project conventions. Like the FPGA phases, it has its own
 
 | ADR | Decision (proposed) | Revisit when |
 |---|---|---|
-| ADR-001 | GVSP packetization in Linux userspace first. Move packet building into the FPGA (with Linux only chaining EMAC descriptors) only if M0/M5 numbers demand it. | M0, M5 |
+| ADR-001 | **Accepted (M0).** GVSP packetization in Linux userspace, 3768-byte default packets (MTU 3796), zero-copy in M5. FPGA-built packets are not needed for v1.0. | M5 |
 | ADR-002 | Buildroot, not Yocto, for consistency with phases 6–11 | Never for this project |
 | ADR-003 | AXI4-Stream video conventions inside custom HDL; Avalon only at Platform Designer boundaries | — |
-| ADR-004 | IPCraft YAML regmap generates VHDL, C, GenICam XML, docs | M3 |
+| ADR-004 | IPCraft YAML regmap generates VHDL, C, GenICam XML, docs. Generated files are checked into git; CI checks freshness. | M3 |
 | ADR-005 | Custom ISP, not the Intel VIP Suite | — |
 | ADR-006 | `camd` in C, matching the existing servers in `11_*` and `17_*` | M3 |
 | ADR-007 | HDMI preview default 720p60 to protect DDR bandwidth | M5 |
@@ -272,22 +274,25 @@ Follows the repo's per-project conventions. Like the FPGA phases, it has its own
 
 | ID | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| R1 | A9 Linux cannot send UDP fast enough | High | High | M0 spike; jumbo frames; `sendmmsg`, zero-copy; ROI / `BayerGR8` default; ADR-001 fallback to FPGA-built packets |
-| R2 | EMAC FIFO / driver limits jumbo frames | Medium | High | Test in M0; check the socfpga `stmmac` FIFO configuration |
+| R1 | A9 Linux cannot send UDP fast enough | ~~High~~ Low | High | **Retired by M0**: one core meets full-res `BayerGR8` ≈ 14 fps at MTU 1500. Remaining: streaming owns one core; zero-copy in M5. |
+| R2 | EMAC FIFO / driver limits jumbo frames | Occurred | Medium | **M0**: max MTU is 3796, not 9000. 3768-byte packets still give 936 Mbit/s per core, so the impact is accepted. |
 | R3 | Signal integrity of 12-bit parallel bus at high PIXCLK over the 40-pin header | Medium | Medium | Start at reduced PIXCLK; capture-side timing constraints; test-pattern mode on the sensor itself |
 | R4 | D5M pin mapping differs from Terasic reference designs (written for other boards) | High | Low | Port pinout carefully; verify each signal with SignalTap |
 | R5 | DDR bandwidth contention (writer + EMAC + HDMI + CPU) | Medium | High | §3 budget; per-port priority/weights; 720p preview default |
 | R6 | GigE Vision spec access | Medium | Medium | Obtain spec from A3; use Aravis source, `arv-fake-gv-camera`, and Wireshark dissectors as open references |
 | R7 | Scope creep (it is a "startup") | High | Medium | Strict milestone exit criteria; anything outside the §2 datasheet waits for v1.1 |
+| R8 | Uncached FPGA frame buffer makes the kernel's send-path copy much slower than M0's cached buffer | Medium | High | Re-run `gvsp_blast` on a reserved-memory / dma-buf buffer in M1 (ADR-001 open item) |
+| R9 | Lab receiver below 1 Gbit/s (dev-ubuntu AX88179 runs at USB 2.0) hides loss and throttles via pause frames | Occurred | Medium | Move to USB 3 / PCIe NIC with MTU 3796 before M5; measure with pause off |
+| R10 | No calibrated light source | Occurred | Low | EMVA 1288-style subset only (§8); QE and absolute sensitivity dropped from the datasheet |
 
 ---
 
-## 13. Open Questions
+## 13. Resolved Questions (2026-10-25)
 
-1. Which GPIO header (JP1 or JP7) does the D5M use, and which free pins carry trigger / strobe?
-2. Is a second DE10-Nano available for the PTP / action-command demo in M6?
-3. Check generated GenICam XML into git, or generate at build time only (ADR-004)?
-4. Light source for EMVA 1288: a DIY integrating sphere / diffuser, or a simplified relative-measurement procedure?
+1. **GPIO header**: the D5M uses **JP7**. Trigger input and strobe output go on JP1 or the Arduino header; the exact pins are chosen in M3.
+2. **Second board**: none. M6 demonstrates PTP and action commands with one camera synced to a PC grandmaster instead of two-camera sync.
+3. **Generated GenICam XML**: checked into git, with a CI freshness check (ADR-004).
+4. **Light source for EMVA 1288**: none. Characterization is limited to the dark and photon-transfer subset described in §8.
 
 ---
 
