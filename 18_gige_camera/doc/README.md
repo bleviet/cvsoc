@@ -215,6 +215,38 @@ arv-camera-test-0.8 -n 192.168.10.2 -f 3
 arv-test-0.8 -c client/arv-test.cfg -n "cvsoc*"
 ```
 
+### Viewing the image from another PC
+
+Any GigE Vision viewer must sit on the board's link: GVSP is UDP sent to the
+receiver's own address, and the camera only answers on 192.168.10.x. When the
+board is cabled to a lab PC (here dev-ubuntu) and you work from another
+machine, run Aravis's viewer on the lab PC and forward its window over SSH:
+
+```bash
+ssh -X -C dev-ubuntu arv-viewer-0.8
+```
+
+Pick "cvsoc DE10-Nano GigE Camera" and press play. Pattern, ROI and pixel
+format are editable in the viewer. The warnings `No xauth data` and
+`extension "DRI2" missing` are harmless with a forwarded display.
+
+- **WSL2:** works through WSLg (`DISPLAY=:0`), no X server to install.
+- **Speed:** a forwarded 5 MP window is heavy. Keep the frame rate at about
+  3 fps or less, or view a smaller ROI.
+
+To run the viewer natively on your own PC instead, the PC itself must be on
+the camera's network:
+
+1. Connect the board to the PC's LAN or to a spare NIC on the PC, and give the
+   board an address on that network.
+2. On WSL2, set `networkingMode=mirrored` under `[wsl2]` in
+   `%UserProfile%\.wslconfig` and run `wsl --shutdown`. In the default NAT
+   mode, UDP from the LAN does not reach WSL.
+3. Run `arv-viewer-0.8` locally.
+
+Routing through the lab PC (IP forwarding on dev-ubuntu) also works, but needs
+root there.
+
 ### Results (2026-10-25)
 
 - **Byte-exact path:** `verify_stream.py` received full-res moving-ramp frames
