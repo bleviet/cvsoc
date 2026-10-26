@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,10 +62,11 @@ enum {
 #define HDMI_BASE       0x40u
 enum {
     HDMI_ID = HDMI_BASE, HDMI_CTRL, HDMI_STATUS, HDMI_SRC_X, HDMI_SRC_Y,
-    HDMI_FRAMES, HDMI_UNDERFLOWS, HDMI_I2C,
+    HDMI_FRAMES, HDMI_UNDERFLOWS, HDMI_I2C, HDMI_LUT,
 };
 #define HDMI_ID_VALUE   0x48444D31u      /* "HDM1" */
 #define HDMI_SHOW       (1u << 0)
+#define HDMI_MAP        (1u << 3)        /* the frame through the LUT */
 #define HDMI_WIDTH      1280
 #define HDMI_HEIGHT     720
 
@@ -538,6 +540,20 @@ static void fpga_poll(struct frame_source *src)
         f->hdmi_hpd = hpd;
 }
 
+/* The sensor's values are linear in light; a monitor expects them encoded
+ * with the sRGB curve, or shadows look black. The LUT removes the black
+ * level and applies the curve (the GigE stream stays linear). */
+static void hdmi_load_lut(volatile uint32_t *csr)
+{
+    for (unsigned i = 0; i < 256; i++) {
+        double x = (i - AE_BLACK_LEVEL) / (255.0 - AE_BLACK_LEVEL), y;
+
+        x = x < 0.0 ? 0.0 : x > 1.0 ? 1.0 : x;
+        y = x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1.0 / 2.4) - 0.055;
+        csr[HDMI_LUT] = i << 8 | (unsigned)lround(255.0 * y);
+    }
+}
+
 static float fpga_max_frame_rate(struct frame_source *src, const struct image_cfg *img)
 {
     struct fpga *f = src->priv;
@@ -630,7 +646,9 @@ struct frame_source *source_fpga_open(uint32_t sensor_width, uint32_t sensor_hei
         f->hdmi_i2c = i2c_on(&f->csr[HDMI_I2C]);
         f->csr[HDMI_I2C] = 0;
         i2c_recover(&f->hdmi_i2c);
-        f->csr[HDMI_CTRL] = HDMI_SHOW | (uint32_t)opts->hdmi_mode;
+        hdmi_load_lut(f->csr);
+        f->csr[HDMI_CTRL] = HDMI_SHOW | (uint32_t)opts->hdmi_mode |
+                            (opts->hdmi_linear ? 0 : HDMI_MAP);
         if (adv7513_init(&f->hdmi_i2c) < 0)
             fprintf(stderr, "camd: ADV7513 does not answer on I2C\n");
         else

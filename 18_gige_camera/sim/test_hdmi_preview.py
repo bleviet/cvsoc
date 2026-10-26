@@ -18,8 +18,8 @@ from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
 H_ACTIVE, H_FP, H_SYNC, H_BP = 64, 4, 4, 8
 V_ACTIVE, V_FP, V_SYNC, V_BP = 8, 1, 1, 2
 
-ID, CTRL, STATUS, SRC_X, SRC_Y, FRAMES, UNDERFLOWS, I2C = range(8)
-SHOW, GREY, BARS = 1, 2, 4
+ID, CTRL, STATUS, SRC_X, SRC_Y, FRAMES, UNDERFLOWS, I2C, LUT = range(9)
+SHOW, GREY, BARS, MAP = 1, 2, 4, 8
 
 BASE = 0x3C000000
 
@@ -101,7 +101,7 @@ def frame_bytes(w, h):
     return bytes((x * 7 + y * 31 + (x * y) % 13) & 0xFF for y in range(h) for x in range(w))
 
 
-def model(data, w, h, src_x, src_y, mode):
+def model(data, w, h, src_x, src_y, mode, lut=None):
     """Expected (R, G, B) of every active pixel, row by row."""
     def px(x, y):
         return data[y * w + x] if 0 <= x < w and 0 <= y < h else 0
@@ -122,12 +122,15 @@ def model(data, w, h, src_x, src_y, mode):
             x = src_x + c
             if mode & GREY:
                 v = px(x, ya + (r & 1))
-                row.append((v, v, v))
+                rgb = (v, v, v)
             else:
                 xa = x & ~1
                 g1, rr = px(xa, ya), px(xa + 1, ya)
                 b, g2 = px(xa, ya + 1), px(xa + 1, ya + 1)
-                row.append((rr, (g1 + g2) // 2, b))
+                rgb = (rr, (g1 + g2) // 2, b)
+            if mode & MAP and lut:
+                rgb = tuple(lut[v] for v in rgb)
+            row.append(rgb)
         out.append(row)
     return out
 
@@ -173,13 +176,13 @@ async def setup(dut, w, h, **mem_args):
     return mem, csr, data
 
 
-async def check(dut, csr, data, w, h, src_x, src_y, mode):
+async def check(dut, csr, data, w, h, src_x, src_y, mode, lut=None):
     await csr.write(SRC_X, src_x)
     await csr.write(SRC_Y, src_y)
     await csr.write(CTRL, mode)
     await capture_frame(dut)                 # settles the new settings
     got = await capture_frame(dut)
-    want = model(data, w, h, src_x, src_y, mode)
+    want = model(data, w, h, src_x, src_y, mode, lut)
     for r in range(V_ACTIVE):
         assert got[r] == want[r], f"row {r} mode {mode} src ({src_x},{src_y})"
 
@@ -222,6 +225,22 @@ async def test_grey_bars_and_blank(dut):
     await check(dut, csr, data, w, h, 0, 0, SHOW | GREY)
     await check(dut, csr, data, w, h, 0, 0, BARS)
     await check(dut, csr, data, w, h, 0, 0, 0)
+
+
+@cocotb.test()
+async def test_lut_maps_frame_not_bars(dut):
+    """The LUT maps color and grey frames; bars and blanking bypass it.
+    Before any write it is the identity."""
+    w, h = 64, 8
+    _, csr, data = await setup(dut, w, h)
+    await check(dut, csr, data, w, h, 0, 0, SHOW | MAP)            # identity
+    lut = [(255 - v) ^ 0x5A for v in range(256)]
+    for i, v in enumerate(lut):
+        await csr.write(LUT, i << 8 | v)
+    await check(dut, csr, data, w, h, 0, 0, SHOW | MAP, lut)
+    await check(dut, csr, data, w, h, 0, 0, SHOW | GREY | MAP, lut)
+    await check(dut, csr, data, w, h, 0, 0, BARS | MAP)
+    await check(dut, csr, data, w, h, 0, 0, MAP)                  # black, not lut[0]
 
 
 @cocotb.test()

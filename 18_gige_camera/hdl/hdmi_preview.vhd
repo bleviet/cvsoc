@@ -10,7 +10,9 @@ use ieee.numeric_std.all;
 -- 60 Hz by default) onto the last frame cam_frame_writer completed in DDR.
 -- SRC_X/SRC_Y place the window in the frame; parts outside the frame are
 -- black. BayerGR8 data is shown in color, one RGB value per 2x2 cell
--- (G R / B G), or as the raw values in grey.
+-- (G R / B G), or as the raw values in grey. A 256-entry lookup table per
+-- channel (written by software, identity after configuration) maps the
+-- linear sensor values for display, e.g. black level and gamma.
 --
 -- Two clock domains:
 --   clk   (50 MHz)  CSRs and the line fetcher, an Avalon-MM read master on
@@ -29,6 +31,7 @@ use ieee.numeric_std.all;
 --   0x04    CTRL        R/W     bit 0: show the frame (0: black screen)
 --                               bit 1: grey (raw sensor values, no color)
 --                               bit 2: color bars instead of the frame
+--                               bit 3: map the frame through the LUT
 --   0x08    STATUS      R/O     bit 0: a frame is available from the writer
 --   0x0C    SRC_X       R/W     signed window left edge in the frame, multiple of 8
 --   0x10    SRC_Y       R/W     signed window top edge in the frame, even
@@ -36,6 +39,8 @@ use ieee.numeric_std.all;
 --   0x18    UNDERFLOWS  R/O     row pairs not fetched in time (shown stale)
 --   0x1C    I2C         R/W     bit 0: pull SCL low, bit 1: pull SDA low (ADV7513)
 --                               R/O bit 8: SCL pin, bit 9: SDA pin, bit 10: INT pin
+--   0x20    LUT         W/O     bits [15:8] input value, [7:0] output value;
+--                               the same table for R, G and B
 --------------------------------------------------------------------------------
 entity hdmi_preview is
   generic (
@@ -54,7 +59,7 @@ entity hdmi_preview is
     pclk          : in    std_logic;
 
     -- ── Avalon-MM Slave interface (control/status registers) ──────────
-    avs_address   : in    std_logic_vector(2 downto 0);
+    avs_address   : in    std_logic_vector(3 downto 0);
     avs_read      : in    std_logic;
     avs_readdata  : out   std_logic_vector(31 downto 0);
     avs_write     : in    std_logic;
@@ -102,8 +107,22 @@ architecture rtl of hdmi_preview is
   type ram_t is array (0 to 2 * 256 - 1) of std_logic_vector(63 downto 0);
   signal ram_a, ram_b : ram_t := (others => (others => '0'));
 
+  -- Display LUT, one copy per channel (three reads per pixel)
+  type lut_t is array (0 to 255) of std_logic_vector(7 downto 0);
+
+  function identity return lut_t is
+    variable t : lut_t;
+  begin
+    for i in 0 to 255 loop
+      t(i) := std_logic_vector(to_unsigned(i, 8));
+    end loop;
+    return t;
+  end function;
+
+  signal lut_r, lut_g, lut_b : lut_t := identity;
+
   -- ── clk domain ─────────────────────────────────────────────────────────
-  signal reg_ctrl   : std_logic_vector(2 downto 0) := (others => '0');
+  signal reg_ctrl   : std_logic_vector(3 downto 0) := (others => '0');
   signal reg_src_x  : signed(15 downto 0) := (others => '0');
   signal reg_src_y  : signed(15 downto 0) := (others => '0');
   signal reg_i2c    : std_logic_vector(1 downto 0) := (others => '0');
@@ -147,7 +166,7 @@ architecture rtl of hdmi_preview is
   signal done_ps    : std_logic_vector(2 downto 0) := (others => '0');
   signal fetched    : unsigned(9 downto 0) := (others => '0');   -- pairs ready this frame
   signal started    : std_logic := '0';      -- a frame start was requested since reset
-  signal ctrl_p1, ctrl_p2 : std_logic_vector(2 downto 0) := (others => '0');
+  signal ctrl_p1, ctrl_p2 : std_logic_vector(3 downto 0) := (others => '0');
   signal valid_p1, valid_p2 : std_logic := '0';
 
   -- Pixel pipeline
@@ -155,6 +174,9 @@ architecture rtl of hdmi_preview is
   signal p1_byte    : unsigned(2 downto 0) := (others => '0');
   signal p1_col     : natural range 0 to H_ACTIVE - 1 := 0;
   signal q_a, q_b   : std_logic_vector(63 downto 0) := (others => '0');
+  signal p2_de, p2_hs, p2_vs, p2_map : std_logic := '0';
+  signal p2_rgb     : std_logic_vector(23 downto 0) := (others => '0');
+  signal lq_r, lq_g, lq_b : std_logic_vector(7 downto 0) := (others => '0');
 
   attribute altera_attribute : string;
   attribute altera_attribute of req_s, frame_s, under_s, done_ps, prst_s : signal is
@@ -188,7 +210,7 @@ begin
     avs_readdata <= (others => '0');
     case to_integer(unsigned(avs_address)) is
       when 0 => avs_readdata <= ID_VALUE;
-      when 1 => avs_readdata(2 downto 0) <= reg_ctrl;
+      when 1 => avs_readdata(3 downto 0) <= reg_ctrl;
       when 2 => avs_readdata(0) <= frame_valid;
       when 3 => avs_readdata <= std_logic_vector(resize(reg_src_x, 32));
       when 4 => avs_readdata <= std_logic_vector(resize(reg_src_y, 32));
@@ -216,7 +238,7 @@ begin
     elsif rising_edge(clk) then
       if avs_write = '1' then
         case to_integer(unsigned(avs_address)) is
-          when 1 => reg_ctrl  <= avs_writedata(2 downto 0);
+          when 1 => reg_ctrl  <= avs_writedata(3 downto 0);
           when 3 => reg_src_x <= signed(avs_writedata(15 downto 3)) & "000";
           when 4 => reg_src_y <= signed(avs_writedata(15 downto 1)) & '0';
           when 7 => reg_i2c   <= avs_writedata(1 downto 0);
@@ -236,6 +258,20 @@ begin
       end if;
       if under_s(2) /= under_s(1) then
         underflows <= underflows + 1;
+      end if;
+    end if;
+  end process;
+
+  -- ── Display LUT writes (read in the pixel pipeline, pclk) ────────────
+  process (clk)
+    variable i : natural range 0 to 255;
+  begin
+    if rising_edge(clk) then
+      i := to_integer(unsigned(avs_writedata(15 downto 8)));
+      if avs_write = '1' and unsigned(avs_address) = 8 then
+        lut_r(i) <= avs_writedata(7 downto 0);
+        lut_g(i) <= avs_writedata(7 downto 0);
+        lut_b(i) <= avs_writedata(7 downto 0);
       end if;
     end if;
   end process;
@@ -438,7 +474,7 @@ begin
     end if;
   end process;
 
-  -- ── Pixel pipeline: counters -> RAM read -> pixel -> pins ─────────────
+  -- ── Pixel pipeline: counters -> RAM read -> pixel -> LUT -> pins ──────
   process (pclk)
     variable active : boolean;
     variable row    : natural range 0 to V_ACTIVE - 1;
@@ -448,6 +484,7 @@ begin
     variable gsum   : unsigned(8 downto 0);
     variable rgb    : std_logic_vector(23 downto 0);
     variable bar    : natural range 0 to 7;
+    variable map_it : std_logic;
   begin
     if rising_edge(pclk) then
       -- Stage 1: address the line buffers.
@@ -494,6 +531,7 @@ begin
       else
         rgb := std_logic_vector(r & gsum(8 downto 1) & b);
       end if;
+      map_it := ctrl_p2(3);                            -- the frame through the LUT
       if ctrl_p2(2) = '1' then                         -- color bars
         bar := 0;
         for k in 1 to 7 loop
@@ -505,16 +543,33 @@ begin
         if bar = 0 or bar = 1 or bar = 4 or bar = 5 then rgb(23 downto 16) := x"FF"; end if;
         if bar <= 3 then rgb(15 downto 8) := x"FF"; end if;
         if bar mod 2 = 0 then rgb(7 downto 0) := x"FF"; end if;
+        map_it := '0';
       elsif ctrl_p2(0) = '0' or valid_p2 = '0' then
         rgb := (others => '0');
+        map_it := '0';
       end if;
       if p1_de = '0' then
         rgb := (others => '0');
+        map_it := '0';
       end if;
-      hdmi_d  <= rgb;
-      hdmi_de <= p1_de;
-      hdmi_hs <= p1_hs;
-      hdmi_vs <= p1_vs;
+      lq_r   <= lut_r(to_integer(unsigned(rgb(23 downto 16))));
+      lq_g   <= lut_g(to_integer(unsigned(rgb(15 downto 8))));
+      lq_b   <= lut_b(to_integer(unsigned(rgb(7 downto 0))));
+      p2_rgb <= rgb;
+      p2_map <= map_it;
+      p2_de  <= p1_de;
+      p2_hs  <= p1_hs;
+      p2_vs  <= p1_vs;
+
+      -- Stage 3: the LUT output, or the value as it is.
+      if p2_map = '1' then
+        hdmi_d <= lq_r & lq_g & lq_b;
+      else
+        hdmi_d <= p2_rgb;
+      end if;
+      hdmi_de <= p2_de;
+      hdmi_hs <= p2_hs;
+      hdmi_vs <= p2_vs;
     end if;
   end process;
 

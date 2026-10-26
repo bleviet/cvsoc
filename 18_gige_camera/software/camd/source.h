@@ -54,6 +54,7 @@ struct sensor_opts {
     double wb_red, wb_blue;             /* red, blue gain / green gain */
     int    focus;                       /* log a focus measure once a second */
     unsigned hdmi_mode;                 /* hdmi_preview CTRL bits: 2 grey, 4 bars */
+    int    hdmi_linear;                 /* no display curve (raw linear values) */
 };
 
 struct frame_source *source_sim_open(uint32_t sensor_width, uint32_t sensor_height);

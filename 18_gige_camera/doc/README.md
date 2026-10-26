@@ -319,7 +319,7 @@ diagnostics counters, `CaptureOverflows` and `CaptureBadFrames`.
 ### Procedure
 
 ```bash
-make sim                                   # 2 x 17 writer tests incl. a D5M bus model, 7 HDMI tests
+make sim                                   # 2 x 17 writer tests incl. a D5M bus model, 8 HDMI tests
 make test                                  # + MT9P001 timing-model and auto-exposure unit tests
 make fpga && make load-fpga HOST=de10nano
 make sensor-test HOST=de10nano             # all 12 data lines, glitch count
@@ -506,6 +506,13 @@ cam_frame_writer ──DDR ring──► hdmi_preview ──► ADV7513 ──�
 - **Color** from each 2x2 GR/BG cell (no interpolation), or the raw values in
   grey with `camd --hdmi grey` (sharper for focusing), or the FPGA's color
   bars with `--hdmi bars` (checks the HDMI path alone).
+- **Display curve:** sensor values are linear in light, but a monitor
+  expects sRGB-encoded values, so on a linear preview the shadows look
+  black. A 256-entry LUT per channel in `hdmi_preview` (`CTRL` bit 3)
+  maps them; camd loads the sRGB curve after removing the black level (10):
+  10 → 0, 20 → 57, 50 → 112, 117 → 176, 255 → 255. Color bars bypass it.
+  `--hdmi-linear` shows the raw values. Only the preview changes: the GigE
+  stream stays linear, as machine-vision software expects.
 - **Always live:** while no GigE client streams, camd keeps the sensor
   running with the current settings, so the monitor shows a live image. A
   client's ROI and frame rate apply to the preview too.
@@ -526,11 +533,12 @@ re-centers `SRC_X`/`SRC_Y` whenever it restarts the writer, e.g. on a ROI change
 | Register | Address | Contents |
 |---|---|---|
 | `ID` | 0xFF200100 | 0x48444D31 ("HDM1") |
-| `CTRL` | 0xFF200104 | bit 0 show (0: black), bit 1 grey, bit 2 color bars |
+| `CTRL` | 0xFF200104 | bit 0 show (0: black), bit 1 grey, bit 2 color bars, bit 3 display curve (LUT) |
 | `STATUS` | 0xFF200108 | bit 0: a frame is available |
 | `SRC_X` / `SRC_Y` | 0xFF20010C / 0xFF200110 | top-left frame pixel shown (signed; X a multiple of 8, Y even) |
 | `FRAMES` | 0xFF200114 | display frames sent (counts at 60 Hz) |
 | `UNDERFLOWS` | 0xFF200118 | row pairs fetched too late |
+| `LUT` | 0xFF200120 | write `input << 8 \| output` (camd loads the sRGB curve) |
 
 ```bash
 # Start camd with a preview mode (default color) and auto exposure ...
@@ -544,8 +552,9 @@ ssh de10nano 'killall camd; sleep 0.5; nohup /tmp/camd --fpga \
 ssh de10nano cat /tmp/camd.log     # "HDMI monitor connected", "AE settled: ..."
 
 # Switch the mode without restarting camd.
-ssh de10nano devmem 0xFF200104 32 1           # live, color
-ssh de10nano devmem 0xFF200104 32 3           # live, grey (raw values)
+ssh de10nano devmem 0xFF200104 32 9           # live, color, display curve (camd's default)
+ssh de10nano devmem 0xFF200104 32 11          # live, grey, display curve
+ssh de10nano devmem 0xFF200104 32 1           # live, color, linear
 ssh de10nano devmem 0xFF200104 32 5           # color bars
 ssh de10nano devmem 0xFF200104 32 0           # black
 
@@ -562,9 +571,6 @@ ssh de10nano 'devmem 0xFF200114 32; sleep 1; devmem 0xFF200114 32; devmem 0xFF20
 
 - **Focus:** better after a first turn by hand (focus measure 1.9 → 2.8),
   still soft; fine-tune with `camd --focus`.
-- **Gamma:** the HDMI preview shows linear values, so shadows look nearly
-  black. A gamma curve belongs to the M4 ISP; a LUT in `hdmi_preview` would
-  help aiming before that.
 - **Faster PIXCLK:** the sensor PLL can reach ~96 MHz (14 fps full
   resolution). Needs XCLKIN within the PLL's 6–27 MHz input range (25 MHz
   is), the SDC tightened, the capture timing re-checked, and the slew sweep

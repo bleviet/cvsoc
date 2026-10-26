@@ -51,7 +51,7 @@ set_interface_property avs readWaitTime           0
 set_interface_property avs writeWaitTime          0
 set_interface_property avs ENABLED                true
 
-add_interface_port   avs avs_address   address   Input  3
+add_interface_port   avs avs_address   address   Input  4
 add_interface_port   avs avs_read      read      Input  1
 add_interface_port   avs avs_readdata  readdata  Output 32
 add_interface_port   avs avs_write     write     Input  1
