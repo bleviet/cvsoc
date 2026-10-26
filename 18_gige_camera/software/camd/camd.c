@@ -6,7 +6,8 @@
  *
  * Usage:
  *   camd --sim  [-p port] [-W width] [-H height] [-P max-packet] [-v]
- *   camd --fpga [--fb-base addr] [--fb-size bytes] [--exposure-us N] [--gain G] [...]
+ *   camd --fpga [--fb-base addr] [--fb-size bytes] [--ae-target N]
+ *               [--exposure-us N] [--gain G] [...]
  *   camd --sensor-test
  */
 #define _GNU_SOURCE
@@ -19,6 +20,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "ae.h"
 #include "camera.h"
 #include "gvcp.h"
 #include "gvsp.h"
@@ -55,8 +57,12 @@ static void usage(const char *argv0)
             "               print the capture statistics, then exit\n"
             "  --fb-base A  frame-buffer region (default 0x3C000000)\n"
             "  --fb-size N  frame-buffer region size (default 0x4000000)\n"
-            "  --exposure-us N  sensor exposure (default 20000)\n"
-            "  --gain G     sensor analog gain, 1.0 to 15.75 (default 2.0)\n"
+            "  --ae-target N  auto exposure: desired mean pixel value, 0-255\n"
+            "               (default %.0f)\n"
+            "  --exposure-us N  fixed sensor exposure (turns auto exposure off;\n"
+            "               default 20000 with --gain)\n"
+            "  --gain G     fixed sensor analog gain, 1.0 to 15.75 (turns auto\n"
+            "               exposure off; default 2.0 with --exposure-us)\n"
             "  --hdmi MODE  HDMI preview: color (default), grey or bars\n"
             "  -p PORT      GVCP port (default %d)\n"
             "  -W PIXELS    sensor width (default 2592)\n"
@@ -64,7 +70,7 @@ static void usage(const char *argv0)
             "  -P BYTES     largest GevSCPSPacketSize accepted (default 3796)\n"
             "  -s SERIAL    serial number (default CVSOC-SIM)\n"
             "  -v           log every GVCP command\n",
-            argv0, argv0, GVCP_PORT);
+            argv0, argv0, AE_TARGET_DEFAULT, GVCP_PORT);
 }
 
 int main(int argc, char **argv)
@@ -76,6 +82,7 @@ int main(int argc, char **argv)
         { "fb-size", required_argument, NULL, 'z' },
         { "exposure-us", required_argument, NULL, 'e' },
         { "gain", required_argument, NULL, 'g' },
+        { "ae-target", required_argument, NULL, 'A' },
         { "hdmi", required_argument, NULL, 'D' },
         { "sensor-test", no_argument, NULL, 'T' },
         { "sensor-reg", required_argument, NULL, 'R' },
@@ -96,7 +103,10 @@ int main(int argc, char **argv)
     struct streamer streamer;
     struct frame_source *src;
     uint32_t fb_base = 0x3C000000u, fb_size = 0x4000000u;
-    struct sensor_opts sensor = { .exposure_us = 20000, .gain = 2.0 };
+    struct sensor_opts sensor = {
+        .exposure_us = 20000, .gain = 2.0,
+        .auto_exposure = 1, .ae_target = AE_TARGET_DEFAULT,
+    };
     char *regs[64];
     int nregs = 0;
     int port = GVCP_PORT, sim = 0, fpga = 0, verbose = 0, fd, c;
@@ -108,8 +118,9 @@ int main(int argc, char **argv)
         case 'F': fpga = 1; break;
         case 'b': fb_base = (uint32_t)strtoul(optarg, NULL, 0); break;
         case 'z': fb_size = (uint32_t)strtoul(optarg, NULL, 0); break;
-        case 'e': sensor.exposure_us = atof(optarg); break;
-        case 'g': sensor.gain = atof(optarg); break;
+        case 'e': sensor.exposure_us = atof(optarg); sensor.auto_exposure = 0; break;
+        case 'g': sensor.gain = atof(optarg); sensor.auto_exposure = 0; break;
+        case 'A': sensor.ae_target = atof(optarg); break;
         case 'D':
             if (!strcmp(optarg, "grey"))
                 sensor.hdmi_mode = 2;

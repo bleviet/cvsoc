@@ -10,8 +10,9 @@
  *
  * With TestPattern Off the frames come from the D5M. camd configures the
  * MT9P001 over I2C, bit-banged through the writer's I2C register (ADR-009):
- * window = ROI, blanking = AcquisitionFrameRate, shutter = the fixed
- * exposure from the command line. PIXCLK is XCLKIN = 25 MHz (sensor PLL off).
+ * window = ROI, blanking = AcquisitionFrameRate, shutter and gain from the
+ * auto exposure (ae.h), which measures the latest frame in DDR, or fixed from
+ * the command line. PIXCLK is XCLKIN = 25 MHz (sensor PLL off).
  *
  * HDMI (hdl/hdmi_preview.vhd) shows the writer's latest frame 1:1, centered.
  * While no client streams, camd keeps the writer running as a preview, so
@@ -29,6 +30,7 @@
 #include <unistd.h>
 
 #include "adv7513.h"
+#include "ae.h"
 #include "mt9p001.h"
 #include "source.h"
 #include "util.h"
@@ -66,6 +68,12 @@ enum {
 #define HDMI_WIDTH      1280
 #define HDMI_HEIGHT     720
 
+/* Auto exposure */
+#define AE_CELLS            4096        /* 2x2 cells sampled per frame */
+#define AE_SETTLE_FRAMES    3           /* frames until a change is fully visible */
+#define AE_EXPOSURE_MIN_US  50.0
+#define AE_GAIN_MAX         15.75       /* the MT9P001's analog maximum */
+
 #define SENSOR_RESET_N  (1u << 0)
 #define SENSOR_XCLK     (1u << 1)
 #define SENSOR_TRIGGER  (1u << 2)
@@ -89,6 +97,9 @@ struct fpga {
     uint32_t  hb_min;
     struct sensor_opts opts;
     uint32_t  overflows0, bad0;         /* counters when camd started */
+    uint32_t  ae_next;                  /* FRAME_COUNT of the next frame to measure */
+    int       ae_moving;                /* changed since the last "settled" log */
+    uint64_t  ae_log_ns;
 
     /* HDMI */
     int       hdmi;                     /* hdmi_preview present */
@@ -356,7 +367,64 @@ static int start_writer(struct fpga *f, const struct image_cfg *img)
     f->applied = *img;
     f->running = 1;
     f->last_count = 0;
+    f->ae_next = AE_SETTLE_FRAMES;                    /* FRAME_COUNT restarts at 0 */
     return 0;
+}
+
+/* Auto exposure: measure the latest sensor frame and adjust shutter and gain.
+ * A change written during one frame shows fully only a few frames later
+ * (rolling shutter, changes synchronized to frame starts), so the frames in
+ * between are not measured. */
+static void ae_run(struct fpga *f)
+{
+    const struct image_cfg *img = &f->applied;
+    struct ae_setting set = { f->opts.exposure_us, f->opts.gain };
+    struct mt9p001_mode m;
+    struct mt9p001_regs r;
+    struct ae_limits l;
+    struct ae_stats s;
+    uint32_t count;
+    int changed;
+
+    if (!f->opts.auto_exposure || !f->running || img->test_pattern != TEST_PATTERN_OFF)
+        return;
+    count = f->csr[CSR_FRAME_COUNT];
+    if ((int32_t)(count - f->ae_next) < 0)
+        return;
+    ae_measure(f->fb + (size_t)((f->csr[CSR_STATUS] >> 8) & 0xF) * f->stride,
+               img->width, img->height, AE_CELLS, &s);
+
+    /* The longest exposure is the frame time at the current frame rate. */
+    m = sensor_mode(f, img);
+    m.exposure_us = 1e9;
+    mt9p001_compute(&m, &r);
+    l = (struct ae_limits){
+        .exposure_min_us = AE_EXPOSURE_MIN_US, .exposure_max_us = r.exposure_us,
+        .gain_min = 1.0, .gain_max = AE_GAIN_MAX, .target = f->opts.ae_target,
+    };
+    if (set.exposure_us > l.exposure_max_us)
+        set.exposure_us = l.exposure_max_us;          /* frame rate went up */
+
+    changed = ae_step(&l, &s, &set);
+    if (changed) {
+        f->opts.exposure_us = set.exposure_us;
+        f->opts.gain = set.gain;
+        m = sensor_mode(f, img);
+        mt9p001_compute(&m, &r);
+        if (mt9p001_set_exposure(&f->i2c, &r) < 0)
+            fprintf(stderr, "camd: sensor did not acknowledge the exposure\n");
+        f->ae_next = count + AE_SETTLE_FRAMES;
+    } else {
+        f->ae_next = count + 1;
+    }
+    /* Log the way there at most once a second, and where it settles. */
+    if ((changed && now_ns() - f->ae_log_ns > 1000000000ull) || (!changed && f->ae_moving)) {
+        fprintf(stderr, "camd: AE %s: mean %.0f (target %.0f, %.1f %% clipped), "
+                "exposure %.0f us, gain %.2f\n", changed ? "adjusting" : "settled",
+                s.mean, l.target, 100.0 * s.clipped, f->opts.exposure_us, f->opts.gain);
+        f->ae_log_ns = now_ns();
+    }
+    f->ae_moving = changed;
 }
 
 static const uint8_t *fpga_next(struct frame_source *src, const struct image_cfg *img,
@@ -391,6 +459,7 @@ static const uint8_t *fpga_next(struct frame_source *src, const struct image_cfg
     if (count - f->last_count > 1 && f->last_count != 0)
         f->overruns += count - f->last_count - 1;   /* frames skipped by the streamer */
     f->last_count = count;
+    ae_run(f);
     return f->fb + (size_t)((status >> 8) & 0xF) * f->stride;
 }
 
@@ -401,6 +470,7 @@ static void fpga_preview(struct frame_source *src, const struct image_cfg *img)
 
     if (!f->running || !same_cfg(&f->applied, img))
         start_writer(f, img);
+    ae_run(f);
 }
 
 static void fpga_poll(struct frame_source *src)

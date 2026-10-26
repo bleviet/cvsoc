@@ -309,6 +309,7 @@ MT9P001 ──JP1──► d5m_capture ──async_fifo──► cam_frame_write
 | Sensor driver | `software/camd/mt9p001.c`, `i2c_bitbang.c` | Register map and timing model (row time, blanking, shutter) from the datasheet, unit-tested in `make test`; I2C bit-banged through the writer's `I2C` register ([ADR-009](adr/ADR-009-sensor-i2c.md)) |
 | Pin assignments | `quartus/de10_nano_pin_assignments.tcl` | JP1 header pin ↔ D5M signal ↔ FPGA pin, from the TRDB-D5M and DE10-Nano user manuals |
 | Bring-up tools | `camd --sensor-test`, `camd --sensor-reg`, `client/grab.py`, `client/soak.py` | Data-line test, register peek/poke, PNG snapshot, long streaming run |
+| Auto exposure | `software/camd/ae.c` | Frame mean → exposure, then gain; unit-tested in closed loop (see [Auto exposure](#auto-exposure)) |
 | HDMI preview | `hdl/hdmi_preview.vhd`, `software/camd/adv7513.c` | The latest frame on HDMI, 720p60 (see [HDMI preview](#hdmi-preview)) |
 
 New camera features: `AcquisitionFrameRate`'s maximum follows the ROI (the
@@ -319,10 +320,10 @@ diagnostics counters, `CaptureOverflows` and `CaptureBadFrames`.
 
 ```bash
 make sim                                   # 2 x 16 writer tests incl. a D5M bus model, 7 HDMI tests
-make test                                  # + MT9P001 timing-model unit test
+make test                                  # + MT9P001 timing-model and auto-exposure unit tests
 make fpga && make load-fpga HOST=de10nano
 make sensor-test HOST=de10nano             # all 12 data lines, glitch count
-make run-camd HOST=de10nano                # camd --fpga [--exposure-us 20000] [--gain 2.0]
+make run-camd HOST=de10nano                # camd --fpga [--ae-target 110] [--exposure-us N --gain G]
 
 # On a PC on the board's link:
 python3 client/grab.py --host 192.168.10.2 --fps 3 --out frame.png
@@ -361,9 +362,17 @@ camd: HBmin 450, full-res max 3.67 fps at 25 MHz PIXCLK
 - **FPGA:** 1,263 ALMs (3 %), the capture FIFO in 4 M10K blocks. Timing met:
   fabric +1.57 ns setup slack, PIXCLK (constrained at 25 MHz) +14.5 ns.
 - **Image:** the stream works end to end (full resolution, 0 overflows,
-  0 bad frames), but the lab was dark: even at 400 ms and 8× gain the mean is
-  the black level (10 of 255). Image content and the Bayer phase are still to
-  be checked with light on the sensor.
+  0 bad frames). With light on the sensor (lab, room lighting), the mean of
+  the central 640 × 480 grows linearly with exposure × gain until it clips:
+
+  | Exposure × gain | 1 ms × 1 | 20 ms × 2 | 100 ms × 4 | 272 ms × 8 |
+  |---|---|---|---|---|
+  | Mean (black = 10) | 10.1 | 14.0 | 48.5 | 210.9 (clipping) |
+
+  The fixed 20 ms × 2 default was far too dark for the room, hence
+  [auto exposure](#auto-exposure). The two greens agree within 1 % in every
+  frame (e.g. G1 230.6, G2 231.3), so green is on the diagonal of each 2x2
+  cell, as in GR. Telling R from B apart needs a colored target.
 
 ### Findings along the way
 
@@ -389,6 +398,39 @@ camd: HBmin 450, full-res max 3.67 fps at 25 MHz PIXCLK
 - The writer's frame checks (exact size, published only after a trailer)
   drop the frames the sensor sends while it reconfigures, so a ROI change
   never reaches the client as a torn frame.
+
+### Auto exposure
+
+camd adjusts exposure and gain so the frame mean (8-bit) sits at a target,
+110 by default (mid-grey on a monitor), measured on the frames in DDR:
+
+- **Statistics:** 4096 2x2 cells on a grid over the latest frame, read from
+  uncached DDR in a few milliseconds. Mean and the fraction of cells with a
+  clipped pixel (≥ 250).
+- **Control:** the sensor is linear above its black level (10), so one step
+  scales exposure × gain by (target − 10) / (mean − 10), at most 8× per step,
+  with a ±8 % dead band. Exposure goes up first, to the frame time
+  (272 ms at full resolution); gain (noise) only after that, up to 15.75. A
+  frame with over 25 % clipped cells steps down at least 2×; a few clipped
+  highlights, such as a lamp or a window, are normal at the right exposure.
+- **Sensor:** only shutter width and gain change, synchronized to a frame
+  start and without a restart, so no frame is torn or dropped. The next 3
+  frames are skipped before measuring again.
+- It runs while streaming and in the HDMI preview, on sensor frames only.
+  `--exposure-us` or `--gain` switch to fixed values; `--ae-target N`
+  makes the image brighter or darker.
+
+camd logs the way there and where it settles. In the lab, from a mean of 15:
+
+```text
+camd: AE adjusting: mean 15 (target 110, 0.0 % clipped), exposure 272624 us, gain 1.17
+camd: AE settled: mean 108 (target 110, 9.9 % clipped), exposure 272624 us, gain 3.11
+```
+
+The settled values are a good start for fixed settings
+(`--exposure-us 272000 --gain 3.1`). `software/camd/test_ae.c` (`make test`)
+closes the loop with a model of the sensor: the lab scene, the lab with a
+lamp in view, daylight 1000× brighter, and darkness.
 
 ### HDMI preview
 
@@ -435,10 +477,15 @@ re-centers `SRC_X`/`SRC_Y` whenever it restarts the writer, e.g. on a ROI change
 | `UNDERFLOWS` | 0xFF200118 | row pairs fetched too late |
 
 ```bash
-# Start camd with a preview mode, exposure and gain (defaults: color, 20000 us, 2.0).
+# Start camd with a preview mode (default color) and auto exposure ...
 ssh de10nano 'killall camd; sleep 0.5; nohup /tmp/camd --fpga --hdmi grey \
-    --exposure-us 50000 --gain 4 >/tmp/camd.log 2>&1 &'
-ssh de10nano cat /tmp/camd.log                 # "HDMI monitor connected", "ADV7513 configured"
+    >/tmp/camd.log 2>&1 &'
+# ... or a brighter auto exposure, or fixed exposure and gain.
+ssh de10nano 'killall camd; sleep 0.5; nohup /tmp/camd --fpga --ae-target 140 \
+    >/tmp/camd.log 2>&1 &'
+ssh de10nano 'killall camd; sleep 0.5; nohup /tmp/camd --fpga \
+    --exposure-us 100000 --gain 4 >/tmp/camd.log 2>&1 &'
+ssh de10nano cat /tmp/camd.log     # "HDMI monitor connected", "AE settled: ..."
 
 # Switch the mode without restarting camd.
 ssh de10nano devmem 0xFF200104 32 1           # live, color
@@ -457,9 +504,11 @@ ssh de10nano 'devmem 0xFF200114 32; sleep 1; devmem 0xFF200114 32; devmem 0xFF20
 
 ### Open (M2)
 
-- **Light:** a frame of a real scene to check the image and confirm the
-  Bayer phase (expected GR from the datasheet; `client/grab.py` prints the
-  CFA channel means and saves a debayered PNG).
+- **Bayer phase, R vs B:** the greens are confirmed on the diagonal; a
+  colored target (e.g. the HDMI monitor showing red and blue) tells GR from
+  BG (`client/grab.py` prints the CFA channel means).
+- **Focus:** the lens is still far out of focus; adjust it on the HDMI
+  preview (`--hdmi grey` is sharper).
 - **Faster PIXCLK:** the sensor PLL can reach ~96 MHz (14 fps full
   resolution). Needs XCLKIN within the PLL's 6–27 MHz input range (25 MHz
   is), the SDC tightened, the capture timing re-checked, and the slew sweep

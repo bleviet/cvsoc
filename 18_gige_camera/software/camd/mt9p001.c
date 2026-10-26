@@ -117,6 +117,19 @@ int mt9p001_apply(struct i2c_bus *b, const struct mt9p001_regs *r)
     return rc ? -1 : 0;
 }
 
+int mt9p001_set_exposure(struct i2c_bus *b, const struct mt9p001_regs *r)
+{
+    int rc;
+
+    rc = wr(b, MT9P001_OUTPUT_CONTROL,
+            MT9P001_OUTPUT_CONTROL_RUN | MT9P001_SYNCHRONIZE_CHANGES);
+    rc |= wr(b, MT9P001_SHUTTER_UPPER, r->shutter_upper);
+    rc |= wr(b, MT9P001_SHUTTER_LOWER, r->shutter_lower);
+    rc |= wr(b, MT9P001_GLOBAL_GAIN, r->gain);
+    rc |= wr(b, MT9P001_OUTPUT_CONTROL, MT9P001_OUTPUT_CONTROL_RUN);
+    return rc ? -1 : 0;
+}
+
 int mt9p001_color_field(struct i2c_bus *b, int on, uint16_t value)
 {
     if (!on)

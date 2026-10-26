@@ -9,9 +9,9 @@ CFLAGS  ?= -O2 -Wall -Wextra -std=c99
 LDFLAGS ?=
 OUT     ?= build/host
 
-SRCS = adv7513.c camd.c camera.c gvcp.c gvsp.c i2c_bitbang.c mt9p001.c \
+SRCS = adv7513.c ae.c camd.c camera.c gvcp.c gvsp.c i2c_bitbang.c mt9p001.c \
        source_fpga.c source_sim.c xml_blob.c
-HDRS = adv7513.h camera.h gev.h gvcp.h gvsp.h i2c_bitbang.h mt9p001.h source.h util.h
+HDRS = adv7513.h ae.h camera.h gev.h gvcp.h gvsp.h i2c_bitbang.h mt9p001.h source.h util.h
 XML  = genicam/cvsoc_camera.xml
 
 .PHONY: all check clean
@@ -22,13 +22,18 @@ $(OUT)/camd: $(SRCS) $(HDRS) $(XML)
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -pthread -o $@ $(SRCS) $(LDFLAGS) -lm
 
-# Host unit test of the MT9P001 timing model.
-check: $(OUT)/test_mt9p001
+# Host unit tests: MT9P001 timing model, auto exposure.
+check: $(OUT)/test_mt9p001 $(OUT)/test_ae
 	$(OUT)/test_mt9p001
+	$(OUT)/test_ae
 
 $(OUT)/test_mt9p001: test_mt9p001.c mt9p001.c i2c_bitbang.c mt9p001.h i2c_bitbang.h util.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) -o $@ test_mt9p001.c mt9p001.c i2c_bitbang.c $(LDFLAGS) -lm
+
+$(OUT)/test_ae: test_ae.c ae.c ae.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -o $@ test_ae.c ae.c $(LDFLAGS) -lm
 
 clean:
 	rm -rf build

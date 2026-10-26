@@ -42,10 +42,14 @@ struct frame_source {
     void *priv;
 };
 
-/* Fixed sensor settings until M3 makes them GenICam features. */
+/* Sensor settings from the command line until M3 makes them GenICam
+ * features. With auto_exposure, exposure_us and gain are only the start
+ * values (see ae.h). */
 struct sensor_opts {
     double exposure_us;
     double gain;
+    int    auto_exposure;
+    double ae_target;                   /* desired 8-bit frame mean */
     unsigned hdmi_mode;                 /* hdmi_preview CTRL bits: 2 grey, 4 bars */
 };
 

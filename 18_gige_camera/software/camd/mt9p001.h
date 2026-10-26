@@ -94,6 +94,9 @@ double mt9p001_max_frame_rate(uint32_t width, uint32_t height, double pixclk_hz,
 int mt9p001_probe(struct i2c_bus *bus, uint16_t *chip_version);
 int mt9p001_setup(struct i2c_bus *bus);           /* once after reset */
 int mt9p001_apply(struct i2c_bus *bus, const struct mt9p001_regs *r);
+/* Shutter and gain only, from the next frame on, without a restart (auto
+ * exposure: no frame is lost or torn). */
+int mt9p001_set_exposure(struct i2c_bus *bus, const struct mt9p001_regs *r);
 /* Test pattern: on = 0 restores the image; otherwise every pixel = value.
  * The pattern enters the data path ahead of the digital black-level
  * correction, so Row BLC (which would turn every value into
