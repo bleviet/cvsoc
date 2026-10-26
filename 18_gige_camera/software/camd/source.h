@@ -50,6 +50,9 @@ struct sensor_opts {
     double gain;
     int    auto_exposure;
     double ae_target;                   /* desired 8-bit frame mean */
+    int    auto_wb;
+    double wb_red, wb_blue;             /* red, blue gain / green gain */
+    int    focus;                       /* log a focus measure once a second */
     unsigned hdmi_mode;                 /* hdmi_preview CTRL bits: 2 grey, 4 bars */
 };
 

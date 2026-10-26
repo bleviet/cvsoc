@@ -37,6 +37,10 @@
 #define MT9P001_READ_MODE_2     0x20
 #define MT9P001_ROW_ADDR_MODE   0x22
 #define MT9P001_COL_ADDR_MODE   0x23
+#define MT9P001_GREEN1_GAIN     0x2B
+#define MT9P001_BLUE_GAIN       0x2C
+#define MT9P001_RED_GAIN        0x2D
+#define MT9P001_GREEN2_GAIN     0x2E
 #define MT9P001_GLOBAL_GAIN     0x35
 #define MT9P001_ROW_BLACK_OFFSET 0x4B
 #define MT9P001_TEST_PATTERN    0xA0    /* MT9P031-style test pattern block */
@@ -54,12 +58,29 @@
 #define MT9P001_SYNCHRONIZE_CHANGES     0x0001
 #define MT9P001_INVERT_PIXEL_CLOCK      0x8000
 #define MT9P001_READ_MODE_2_DEFAULT     0x0040   /* Row_BLC on */
+#define MT9P001_MIRROR_ROW              0x8000
+#define MT9P001_MIRROR_COLUMN           0x4000
+/* Row_BLC on, rows and columns mirrored: the lens projects the scene upside
+ * down, so reading the sensor backwards in both directions shows it upright
+ * (as Terasic's D5M demos do). */
+#define MT9P001_READ_MODE_2_RUN \
+    (MT9P001_READ_MODE_2_DEFAULT | MT9P001_MIRROR_ROW | MT9P001_MIRROR_COLUMN)
 #define MT9P001_ROW_BLACK_OFFSET_DEFAULT 0x0028
 
 /* The 2592 x 1944 active image starts at column 16, row 54 (datasheet
- * Tables 4 and 5). Its first row reads G1 R G1 R..., so the CFA is GR. */
+ * Tables 4 and 5). Unmirrored, its first row reads G1 R G1 R..., so the CFA
+ * is GR. Mirrored, readout starts at Row_Start + Row_Size and Column_Start +
+ * Column_Size; the starts must be even and the sizes odd, so it starts on an
+ * odd row and column and the order becomes G B / R G (measured: the Red_Gain
+ * register acted on the pixels below the first G). mt9p001_compute therefore
+ * asks for a window one pixel larger on every side, and d5m_capture's trim
+ * drops the first and last line and column: the first pixel kept is a G1,
+ * and the output stays GR. */
+#define MT9P001_TRIM                1       /* extra pixels on each side */
 #define MT9P001_COLUMN_START_ACTIVE 16
 #define MT9P001_ROW_START_ACTIVE    54
+#define MT9P001_ACTIVE_WIDTH        2592
+#define MT9P001_ACTIVE_HEIGHT       1944
 
 #define MT9P001_SHUTTER_OVERHEAD    398
 #define MT9P001_HB_MAX              4096    /* Horizontal_Blank + 1 */
@@ -68,17 +89,19 @@
 #define MT9P001_HBMIN_DEFAULT       450     /* until measured */
 
 struct mt9p001_mode {
-    uint32_t width, height, offset_x, offset_y;   /* in active-image pixels */
+    uint32_t width, height, offset_x, offset_y;   /* kept image, upright (mirrored) */
     double   frame_rate;                          /* requested, Hz */
     double   exposure_us;                         /* requested */
-    double   gain;                                /* 1.0 .. 15.75 */
+    double   gain;                                /* green, 1.0 .. 15.75 */
+    double   wb_red, wb_blue;                     /* red, blue gain / green gain */
     double   pixclk_hz;
     uint32_t hb_min;                              /* HBmin in ACLKs */
 };
 
 struct mt9p001_regs {
     uint16_t row_start, column_start, row_size, column_size;
-    uint16_t horz_blank, vert_blank, shutter_upper, shutter_lower, gain;
+    uint16_t horz_blank, vert_blank, shutter_upper, shutter_lower;
+    uint16_t gain_green, gain_red, gain_blue;
     /* What the registers give: */
     double   frame_rate, exposure_us;
     uint32_t line_pixclks;                        /* tROW in pixel clocks */
@@ -94,7 +117,7 @@ double mt9p001_max_frame_rate(uint32_t width, uint32_t height, double pixclk_hz,
 int mt9p001_probe(struct i2c_bus *bus, uint16_t *chip_version);
 int mt9p001_setup(struct i2c_bus *bus);           /* once after reset */
 int mt9p001_apply(struct i2c_bus *bus, const struct mt9p001_regs *r);
-/* Shutter and gain only, from the next frame on, without a restart (auto
+/* Shutter and gains only, from the next frame on, without a restart (auto
  * exposure: no frame is lost or torn). */
 int mt9p001_set_exposure(struct i2c_bus *bus, const struct mt9p001_regs *r);
 /* Test pattern: on = 0 restores the image; otherwise every pixel = value.

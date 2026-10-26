@@ -63,6 +63,10 @@ static void usage(const char *argv0)
             "               default 20000 with --gain)\n"
             "  --gain G     fixed sensor analog gain, 1.0 to 15.75 (turns auto\n"
             "               exposure off; default 2.0 with --exposure-us)\n"
+            "  --wb R,B     fixed red and blue gains relative to green (turns\n"
+            "               auto white balance off; e.g. 1.13,1.57)\n"
+            "  --focus      log a focus measure once a second (turn the lens\n"
+            "               until it peaks)\n"
             "  --hdmi MODE  HDMI preview: color (default), grey or bars\n"
             "  -p PORT      GVCP port (default %d)\n"
             "  -W PIXELS    sensor width (default 2592)\n"
@@ -83,6 +87,8 @@ int main(int argc, char **argv)
         { "exposure-us", required_argument, NULL, 'e' },
         { "gain", required_argument, NULL, 'g' },
         { "ae-target", required_argument, NULL, 'A' },
+        { "focus", no_argument, NULL, 'f' },
+        { "wb", required_argument, NULL, 'w' },
         { "hdmi", required_argument, NULL, 'D' },
         { "sensor-test", no_argument, NULL, 'T' },
         { "sensor-reg", required_argument, NULL, 'R' },
@@ -106,6 +112,7 @@ int main(int argc, char **argv)
     struct sensor_opts sensor = {
         .exposure_us = 20000, .gain = 2.0,
         .auto_exposure = 1, .ae_target = AE_TARGET_DEFAULT,
+        .auto_wb = 1, .wb_red = 1.0, .wb_blue = 1.0,
     };
     char *regs[64];
     int nregs = 0;
@@ -121,6 +128,14 @@ int main(int argc, char **argv)
         case 'e': sensor.exposure_us = atof(optarg); sensor.auto_exposure = 0; break;
         case 'g': sensor.gain = atof(optarg); sensor.auto_exposure = 0; break;
         case 'A': sensor.ae_target = atof(optarg); break;
+        case 'f': sensor.focus = 1; break;
+        case 'w':
+            if (sscanf(optarg, "%lf,%lf", &sensor.wb_red, &sensor.wb_blue) != 2) {
+                usage(argv[0]);
+                return 2;
+            }
+            sensor.auto_wb = 0;
+            break;
         case 'D':
             if (!strcmp(optarg, "grey"))
                 sensor.hdmi_mode = 2;

@@ -78,6 +78,8 @@ enum {
 #define SENSOR_XCLK     (1u << 1)
 #define SENSOR_TRIGGER  (1u << 2)
 #define SENSOR_CAPTURE  (1u << 3)
+#define SENSOR_TRIM     (1u << 4)       /* d5m_capture drops the MT9P001_TRIM pixels */
+#define SENSOR_RUN      (SENSOR_XCLK | SENSOR_RESET_N | SENSOR_CAPTURE | SENSOR_TRIM)
 
 struct fpga {
     volatile uint32_t *csr;
@@ -100,6 +102,8 @@ struct fpga {
     uint32_t  ae_next;                  /* FRAME_COUNT of the next frame to measure */
     int       ae_moving;                /* changed since the last "settled" log */
     uint64_t  ae_log_ns;
+    uint64_t  focus_ns;
+    double    focus_best;
 
     /* HDMI */
     int       hdmi;                     /* hdmi_preview present */
@@ -265,18 +269,29 @@ static int sensor_power_up(volatile uint32_t *csr, struct i2c_bus *bus, uint16_t
     return mt9p001_setup(bus);
 }
 
+/* Capture with the trim (MT9P001_TRIM): keep width x height of the larger
+ * window the sensor sends. The writer's WIDTH/HEIGHT set the kept size. */
+static void trim_to(volatile uint32_t *csr, uint32_t width, uint32_t height)
+{
+    csr[CSR_WIDTH] = width;
+    csr[CSR_HEIGHT] = height;
+    csr[CSR_SENSOR_CTRL] = SENSOR_RUN;
+}
+
 static struct mt9p001_mode sensor_mode(const struct fpga *f, const struct image_cfg *img)
 {
     return (struct mt9p001_mode){
         .width = img->width, .height = img->height,
         .offset_x = img->offset_x, .offset_y = img->offset_y,
         .frame_rate = img->frame_rate, .exposure_us = f->opts.exposure_us,
-        .gain = f->opts.gain, .pixclk_hz = PIXCLK_HZ, .hb_min = f->hb_min,
+        .gain = f->opts.gain, .wb_red = f->opts.wb_red, .wb_blue = f->opts.wb_blue,
+        .pixclk_hz = PIXCLK_HZ, .hb_min = f->hb_min,
     };
 }
 
 /* HBmin from the line period of a full-width frame with Horizontal_Blank = 0
- * (LROW = W/2 + HBmin). The datasheet's value depends on the revision. */
+ * (LROW = W/2 + HBmin, W including the trim pixels). The datasheet's value
+ * depends on the revision. */
 static void sensor_calibrate(struct fpga *f)
 {
     struct image_cfg full = {
@@ -284,13 +299,13 @@ static void sensor_calibrate(struct fpga *f)
     };
     struct mt9p001_mode m = sensor_mode(f, &full);
     struct mt9p001_regs r;
-    uint32_t period, size;
+    uint32_t period, size, half;
 
     m.exposure_us = 1000;
     mt9p001_compute(&m, &r);
     if (mt9p001_apply(&f->i2c, &r) < 0)
         return;
-    f->csr[CSR_SENSOR_CTRL] = SENSOR_XCLK | SENSOR_RESET_N | SENSOR_CAPTURE;
+    trim_to(f->csr, full.width, full.height);
     if (wait_cap_frames(f->csr, 3, 3000) < 0) {
         fprintf(stderr, "camd: sensor answers on I2C but sends no frames "
                 "(check PIXCLK, FVAL, LVAL)\n");
@@ -300,8 +315,9 @@ static void sensor_calibrate(struct fpga *f)
     size = f->csr[CSR_CAP_SIZE];
     fprintf(stderr, "camd: sensor frame %ux%u, line %u PIXCLKs, frame %.1f ms\n",
             size >> 16, size & 0xFFF, period, f->csr[CSR_FRAME_PERIOD] / 50e3);
-    if (period / 2 > f->sensor_width / 2 && period / 2 - f->sensor_width / 2 < 4096)
-        f->hb_min = period / 2 - f->sensor_width / 2;
+    half = (r.column_size + 1u) / 2;                  /* columns read / 2 */
+    if (period / 2 > half && period / 2 - half < 4096)
+        f->hb_min = period / 2 - half;
 }
 
 /* ── Writer ──────────────────────────────────────────────────────────────── */
@@ -345,7 +361,7 @@ static int start_writer(struct fpga *f, const struct image_cfg *img)
         f->timeout_ns += (uint64_t)(3e9 / r.frame_rate);
         fprintf(stderr, "camd: sensor %ux%u+%u+%u at %.3f fps, exposure %.0f us, "
                 "gain 0x%02x\n", img->width, img->height, img->offset_x, img->offset_y,
-                r.frame_rate, r.exposure_us, r.gain);
+                r.frame_rate, r.exposure_us, r.gain_green);
     } else {
         f->csr[CSR_FRAME_INTERVAL] = (uint32_t)(FABRIC_CLK_HZ / img->frame_rate);
     }
@@ -368,10 +384,36 @@ static int start_writer(struct fpga *f, const struct image_cfg *img)
     f->running = 1;
     f->last_count = 0;
     f->ae_next = AE_SETTLE_FRAMES;                    /* FRAME_COUNT restarts at 0 */
+    f->ae_moving = f->opts.auto_exposure || f->opts.auto_wb;   /* until measured */
     return 0;
 }
 
-/* Auto exposure: measure the latest sensor frame and adjust shutter and gain.
+/* camd --focus: log the focus measure of the latest sensor frame once a
+ * second, with the best so far, while the lens is turned. Noise counts in the
+ * measure and depends on gain, so it pauses while the auto exposure moves and
+ * the best starts over afterwards. */
+static void focus_run(struct fpga *f)
+{
+    const struct image_cfg *img = &f->applied;
+    double v;
+
+    if (f->ae_moving)
+        f->focus_best = 0.0;
+    if (!f->opts.focus || f->ae_moving || !f->running ||
+        img->test_pattern != TEST_PATTERN_OFF || f->csr[CSR_FRAME_COUNT] == 0 ||
+        now_ns() - f->focus_ns < 1000000000ull)
+        return;
+    f->focus_ns = now_ns();
+    v = ae_focus(f->fb + (size_t)((f->csr[CSR_STATUS] >> 8) & 0xF) * f->stride,
+                 img->width, img->height, AE_CELLS);
+    if (v > f->focus_best)
+        f->focus_best = v;
+    fprintf(stderr, "camd: focus %6.2f  (best %6.2f)%s\n", v, f->focus_best,
+            v >= f->focus_best * 0.97 ? "  <-- at best" : "");
+}
+
+/* Auto exposure and white balance: measure the latest sensor frame and
+ * adjust shutter, gain and the red and blue gains.
  * A change written during one frame shows fully only a few frames later
  * (rolling shutter, changes synchronized to frame starts), so the frames in
  * between are not measured. */
@@ -386,7 +428,8 @@ static void ae_run(struct fpga *f)
     uint32_t count;
     int changed;
 
-    if (!f->opts.auto_exposure || !f->running || img->test_pattern != TEST_PATTERN_OFF)
+    if (!(f->opts.auto_exposure || f->opts.auto_wb) || !f->running ||
+        img->test_pattern != TEST_PATTERN_OFF)
         return;
     count = f->csr[CSR_FRAME_COUNT];
     if ((int32_t)(count - f->ae_next) < 0)
@@ -405,7 +448,9 @@ static void ae_run(struct fpga *f)
     if (set.exposure_us > l.exposure_max_us)
         set.exposure_us = l.exposure_max_us;          /* frame rate went up */
 
-    changed = ae_step(&l, &s, &set);
+    changed = f->opts.auto_exposure && ae_step(&l, &s, &set);
+    if (f->opts.auto_wb)
+        changed |= awb_step(&s, &f->opts.wb_red, &f->opts.wb_blue);
     if (changed) {
         f->opts.exposure_us = set.exposure_us;
         f->opts.gain = set.gain;
@@ -420,8 +465,10 @@ static void ae_run(struct fpga *f)
     /* Log the way there at most once a second, and where it settles. */
     if ((changed && now_ns() - f->ae_log_ns > 1000000000ull) || (!changed && f->ae_moving)) {
         fprintf(stderr, "camd: AE %s: mean %.0f (target %.0f, %.1f %% clipped), "
-                "exposure %.0f us, gain %.2f\n", changed ? "adjusting" : "settled",
-                s.mean, l.target, 100.0 * s.clipped, f->opts.exposure_us, f->opts.gain);
+                "exposure %.0f us, gain %.2f, WB R %.2f B %.2f (G %.0f R %.0f B %.0f)\n",
+                changed ? "adjusting" : "settled", s.mean, l.target, 100.0 * s.clipped,
+                f->opts.exposure_us, f->opts.gain, f->opts.wb_red, f->opts.wb_blue,
+                s.green, s.red, s.blue);
         f->ae_log_ns = now_ns();
     }
     f->ae_moving = changed;
@@ -460,6 +507,7 @@ static const uint8_t *fpga_next(struct frame_source *src, const struct image_cfg
         f->overruns += count - f->last_count - 1;   /* frames skipped by the streamer */
     f->last_count = count;
     ae_run(f);
+    focus_run(f);
     return f->fb + (size_t)((status >> 8) & 0xF) * f->stride;
 }
 
@@ -471,6 +519,7 @@ static void fpga_preview(struct frame_source *src, const struct image_cfg *img)
     if (!f->running || !same_cfg(&f->applied, img))
         start_writer(f, img);
     ae_run(f);
+    focus_run(f);
 }
 
 static void fpga_poll(struct frame_source *src)
@@ -637,12 +686,13 @@ int source_fpga_sensor_test(void)
 
     f.csr = csr;
     f.hb_min = MT9P001_HBMIN_DEFAULT;
-    f.opts = (struct sensor_opts){ .exposure_us = 1000, .gain = 1.0 };
+    f.opts = (struct sensor_opts){ .exposure_us = 1000, .gain = 1.0, .wb_red = 1.0,
+                                   .wb_blue = 1.0 };
     m = sensor_mode(&f, &roi);
     mt9p001_compute(&m, &r);
     if (mt9p001_apply(&f.i2c, &r) < 0)
         return 1;
-    csr[CSR_SENSOR_CTRL] = SENSOR_XCLK | SENSOR_RESET_N | SENSOR_CAPTURE;
+    trim_to(csr, roi.width, roi.height);
     if (wait_cap_frames(csr, 2, 3000) < 0) {
         fprintf(stderr, "sensor-test: no frames (PIXCLK, FVAL, LVAL)\n");
         return 1;

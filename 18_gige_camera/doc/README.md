@@ -10,7 +10,7 @@ milestones M0–M6, risks) is in
 |---|---|
 | **M0: Throughput spike** | Done 2026-10-25: [ADR-001](adr/ADR-001-gvsp-packetization.md) accepted provisionally; end-to-end loss check pending a ≥1 Gbit/s receiver |
 | **M1: Walking skeleton** | GigE path done 2026-10-25: FPGA test pattern → DDR → `camd` → GVSP passes Aravis's `arv-test`. HDMI output moved to M2, see [M1](#m1-walking-skeleton) |
-| **M2: Sensor bring-up** | In progress: D5M → FPGA → DDR → `camd` → GVSP works, data lines verified; HDMI preview works (720p60). Image quality and Bayer phase wait for light on the sensor. See [M2](#m2-sensor-bring-up) |
+| **M2: Sensor bring-up** | In progress: D5M → FPGA → DDR → `camd` → GVSP works, data lines verified; HDMI preview works (720p60). Upright image, Bayer phase confirmed, auto exposure and white balance. See [M2](#m2-sensor-bring-up) |
 | M3–M6 | Not started |
 
 Architecture decisions are recorded in [`adr/`](adr/).
@@ -302,7 +302,7 @@ MT9P001 ──JP1──► d5m_capture ──async_fifo──► cam_frame_write
 
 | Piece | Where | Notes |
 |---|---|---|
-| Pixel bus capture | `hdl/d5m_capture.vhd` | PIXCLK domain. Samples DOUT/FVAL/LVAL in the I/O registers, keeps DOUT[11:4], packs 8 pixels per word. Every frame ends with a trailer: lines, last line length, line period, OR/AND of all 12-bit pixels, overflow and irregular-line flags. |
+| Pixel bus capture | `hdl/d5m_capture.vhd` | PIXCLK domain. Samples DOUT/FVAL/LVAL in the I/O registers, keeps DOUT[11:4], packs 8 pixels per word. Trims one pixel on every side for the mirrored readout. Every frame ends with a trailer: lines, last line length, line period, OR/AND of all 12-bit pixels, overflow and irregular-line flags. |
 | Clock-domain crossing | `hdl/async_fifo.vhd` | 512 × 68-bit dual-clock FIFO, Gray-coded pointers, first-word fall-through |
 | Frame writer | `hdl/cam_frame_writer.vhd` | Sensor or test-pattern source. A sensor frame is published only if it has exactly Width × Height pixels; others count in `CaptureBadFrames`. A burst starts only when all its words are ready, so `write` never drops mid-burst. |
 | Word format | `hdl/cam_pkg.vhd` | Pixel, start-of-frame, trailer and fill words |
@@ -313,13 +313,13 @@ MT9P001 ──JP1──► d5m_capture ──async_fifo──► cam_frame_write
 | HDMI preview | `hdl/hdmi_preview.vhd`, `software/camd/adv7513.c` | The latest frame on HDMI, 720p60 (see [HDMI preview](#hdmi-preview)) |
 
 New camera features: `AcquisitionFrameRate`'s maximum follows the ROI (the
-sensor at 25 MHz PIXCLK does 3.67 fps at full resolution), and two
+sensor at 25 MHz PIXCLK does 3.66 fps at full resolution), and two
 diagnostics counters, `CaptureOverflows` and `CaptureBadFrames`.
 
 ### Procedure
 
 ```bash
-make sim                                   # 2 x 16 writer tests incl. a D5M bus model, 7 HDMI tests
+make sim                                   # 2 x 17 writer tests incl. a D5M bus model, 7 HDMI tests
 make test                                  # + MT9P001 timing-model and auto-exposure unit tests
 make fpga && make load-fpga HOST=de10nano
 make sensor-test HOST=de10nano             # all 12 data lines, glitch count
@@ -335,8 +335,8 @@ from one full-width frame before it serves GVCP:
 
 ```text
 camd: MT9P001 chip version 0x1801
-camd: sensor frame 2592x1944, line 3492 PIXCLKs, frame 272.8 ms
-camd: HBmin 450, full-res max 3.67 fps at 25 MHz PIXCLK
+camd: sensor frame 2592x1944, line 3494 PIXCLKs, frame 273.2 ms
+camd: HBmin 450, full-res max 3.66 fps at 25 MHz PIXCLK
 ```
 
 ### Results (2026-10-26)
@@ -372,7 +372,10 @@ camd: HBmin 450, full-res max 3.67 fps at 25 MHz PIXCLK
   The fixed 20 ms × 2 default was far too dark for the room, hence
   [auto exposure](#auto-exposure). The two greens agree within 1 % in every
   frame (e.g. G1 230.6, G2 231.3), so green is on the diagonal of each 2x2
-  cell, as in GR. Telling R from B apart needs a colored target.
+  cell. Raising only the sensor's `Red_Gain` (×3) raised only the pixels
+  right of the first G (27.5 → 61.2, the rest unchanged): the phase is
+  **GR**, also with the mirrored readout (see
+  [Orientation and white balance](#orientation-and-white-balance)).
 
 ### Findings along the way
 
@@ -395,6 +398,12 @@ camd: HBmin 450, full-res max 3.67 fps at 25 MHz PIXCLK
   dark-column average (the pattern itself) and adds Row_Black_Target: every
   value read 0x0A8. `--sensor-test` turns Row BLC and the black offset off
   while the pattern runs.
+- **Mirroring changes the Bayer phase, and the window cannot fix it.**
+  Row_Start/Column_Start must be even and the sizes odd (the sensor ignores
+  the low bit; a window shifted by one gave identical frames), so a readout
+  mirrored in both directions always starts on an odd row and column:
+  G B / R G. Found when the first white balance ran away: it raised the
+  red gain, and the pixels it measured as red got darker.
 - The writer's frame checks (exact size, published only after a trailer)
   drop the frames the sensor sends while it reconfigures, so a ROI change
   never reaches the client as a torn frame.
@@ -431,6 +440,53 @@ The settled values are a good start for fixed settings
 (`--exposure-us 272000 --gain 3.1`). `software/camd/test_ae.c` (`make test`)
 closes the loop with a model of the sensor: the lab scene, the lab with a
 lamp in view, daylight 1000× brighter, and darkness.
+
+### Focusing the lens
+
+Exposure does not bring back detail that the lens blurs. A 1:1 raw crop of
+the first well-exposed frames showed the Bayer checkerboard sharp to the
+pixel (the data path is fine) but a box edge spread over ~150 pixels: the
+lens was far out of focus, or the object closer than the lens can focus.
+
+`camd --focus` logs a focus measure once a second: the RMS difference
+between neighbouring 2x2 cells in the central half of the frame, in percent
+of the mean brightness. Turn the lens slowly while watching it, go past the
+peak, and come back to it. The value depends on the scene, so only compare
+readings of the same view; it pauses while the auto exposure adjusts
+(noise counts in it and depends on gain). Out of focus in the lab it read
+1.93 ± 0.03 over a minute, so a change of a few percent is real.
+
+```bash
+ssh de10nano 'killall camd; sleep 0.5; nohup /tmp/camd --fpga --focus --hdmi grey \
+    >/tmp/camd.log 2>&1 &'
+ssh de10nano tail -f /tmp/camd.log   # camd: focus   2.41  (best   2.63)
+```
+
+### Orientation and white balance
+
+- **Upright:** the lens projects the scene upside down, so the sensor reads
+  its rows and columns in reverse (Read_Mode_2 bits 15 and 14, as Terasic's
+  demos do). To keep BayerGR8, camd asks for a window one pixel larger on
+  every side and `d5m_capture` drops the first and last line and column
+  (`SENSOR_CTRL` bit 4, trim): the first pixel kept is a G1 again. The rest
+  of the system (writer, test patterns, HDMI, GenICam, clients) is unchanged.
+  Offsets count from the top left of the upright image. The two extra
+  columns and rows add 2 PIXCLKs per line and 2 lines per frame
+  (3494 PIXCLKs, 3.66 fps at full resolution).
+- **White balance (grey world):** the sensor has a gain per CFA color
+  (R0x2B–R0x2E). camd sets red and blue relative to green so the unclipped
+  parts of the frame average to grey, in the same loop as the auto exposure
+  and with a ±4 % dead band (the gain steps are 1/8). On by default;
+  `--wb R,B` fixes the ratios. A scene dominated by one color (a red wall)
+  fools it.
+
+In the lab (white ceiling, room light) it settles in 3 steps:
+
+```text
+camd: AE settled: mean 117 (target 110, 1.5 % clipped), exposure 273059 us, gain 2.21, WB R 1.20 B 1.60 (G 116 R 112 B 116)
+```
+
+Before white balance the same ceiling read G 127, R 113, B 81: yellow-green.
 
 ### HDMI preview
 
@@ -504,11 +560,11 @@ ssh de10nano 'devmem 0xFF200114 32; sleep 1; devmem 0xFF200114 32; devmem 0xFF20
 
 ### Open (M2)
 
-- **Bayer phase, R vs B:** the greens are confirmed on the diagonal; a
-  colored target (e.g. the HDMI monitor showing red and blue) tells GR from
-  BG (`client/grab.py` prints the CFA channel means).
-- **Focus:** the lens is still far out of focus; adjust it on the HDMI
-  preview (`--hdmi grey` is sharper).
+- **Focus:** better after a first turn by hand (focus measure 1.9 → 2.8),
+  still soft; fine-tune with `camd --focus`.
+- **Gamma:** the HDMI preview shows linear values, so shadows look nearly
+  black. A gamma curve belongs to the M4 ISP; a LUT in `hdmi_preview` would
+  help aiming before that.
 - **Faster PIXCLK:** the sensor PLL can reach ~96 MHz (14 fps full
   resolution). Needs XCLKIN within the PLL's 6–27 MHz input range (25 MHz
   is), the SDC tightened, the capture timing re-checked, and the slew sweep

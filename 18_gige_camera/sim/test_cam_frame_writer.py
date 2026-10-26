@@ -31,6 +31,7 @@ SENSOR_CTRL, I2C, CAP_FRAMES, CAP_SIZE, CAP_LINE_PERIOD, CAP_BITS = range(16, 22
 CAP_FLAGS, CAP_OVERFLOWS, FRAME_PERIOD, BAD_FRAMES = range(22, 26)
 
 SENSOR_RESET_N, SENSOR_XCLK, SENSOR_TRIGGER, SENSOR_CAPTURE = 1, 2, 4, 8
+SENSOR_TRIM = 16
 PATTERN_SENSOR = 0
 
 FMT_BAYER, FMT_MONO = 0, 1
@@ -393,6 +394,32 @@ async def test_sensor_trailer_statistics(dut):
     await ClockCycles(dut.clk, 200)
     frame_ns = ((64 + d5m.hblank) * 6 + d5m.hblank + d5m.vblank + 1) * 40
     assert abs(await csr.read(FRAME_PERIOD) * 20 - frame_ns) <= 200
+    await csr.write(CTRL, 0)
+
+
+@cocotb.test()
+async def test_sensor_trim(dut):
+    """Trim (mirrored readout): the sensor sends one pixel more on every side;
+    the first line, the first pixel of each line, and everything beyond
+    WIDTH x HEIGHT are dropped. Without trim the same frame is a size error."""
+    mem, csr, d5m = await sensor_setup(dut)
+    await csr.write(SENSOR_CTRL, SENSOR_RESET_N | SENSOR_XCLK | SENSOR_CAPTURE | SENSOR_TRIM)
+    await ClockCycles(dut.clk, 10)
+    await csr.write(CTRL, 1)
+    for _ in range(2):
+        await d5m.frame(64 + 2, 6 + 2)
+    await wait_frames(csr, 2)
+    size = await csr.read(CAP_SIZE)
+    assert (size & 0xFFF, size >> 16) == (6, 64)
+    inner = lambda x, y, n: D5M.pixel(x + 1, y + 1, n)
+    assert mem.read(0x3C000000 + 0x10000, 64 * 6) == d5m.expected(64, 6, 1, inner)
+    assert await csr.read(BAD_FRAMES) == 0
+    assert await csr.read(CAP_FLAGS) == 0
+    await csr.write(SENSOR_CTRL, SENSOR_RESET_N | SENSOR_XCLK | SENSOR_CAPTURE)
+    await ClockCycles(dut.clk, 10)
+    await d5m.frame(64 + 2, 6 + 2)
+    await ClockCycles(dut.clk, 300)
+    assert await csr.read(BAD_FRAMES) == 1
     await csr.write(CTRL, 0)
 
 

@@ -84,6 +84,45 @@ int main(void)
     ae_measure(frame, W, H, 100, &s);
     CHECK(s.cells <= 100 && s.cells >= 50);
 
+    /* White balance: per-channel means skip clipped cells, and one step
+     * evens out a green-heavy frame (the lab: G 127, R 113, B 81). */
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++)
+            frame[y * W + x] = (y % 2 == 0) ? (x % 2 == 0 ? 127 : 113) : (x % 2 == 0 ? 81 : 127);
+    memset(frame, 255, 2 * W);          /* one clipped row of cells */
+    ae_measure(frame, W, H, 0, &s);
+    CHECK(fabs(s.green - 127) < 1e-9 && fabs(s.red - 113) < 1e-9 && fabs(s.blue - 81) < 1e-9);
+    {
+        double wr = 1.0, wb = 1.0;
+
+        CHECK(awb_step(&s, &wr, &wb) == 1);
+        CHECK(fabs(wr - 117.0 / 103) < 1e-9 && fabs(wb - 117.0 / 71) < 1e-9);
+        s.red = s.blue = s.green;                       /* balanced: no change */
+        CHECK(awb_step(&s, &wr, &wb) == 0);
+        s = (struct ae_stats){ .green = 11, .red = 10.5, .blue = 10.5 };
+        CHECK(awb_step(&s, &wr, &wb) == 0);             /* black: no change */
+    }
+
+    /* Focus: a flat frame has none; a sharp edge more than a blurred one. */
+    memset(frame, 100, sizeof(frame));
+    CHECK(ae_focus(frame, W, H, 0) == 0.0);
+    {
+        double sharp, blurred;
+
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                frame[y * W + x] = x < W / 2 ? 40 : 200;
+        sharp = ae_focus(frame, W, H, 0);
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++) {
+                int v = 120 + (x - W / 2) * 10;
+
+                frame[y * W + x] = (uint8_t)(v < 40 ? 40 : v > 200 ? 200 : v);
+            }
+        blurred = ae_focus(frame, W, H, 0);
+        CHECK(sharp > 0.0 && blurred > 0.0 && sharp > blurred);
+    }
+
     /* Dead band: a frame at the target changes nothing. */
     set = (struct ae_setting){ 20000, 2.0 };
     s = (struct ae_stats){ .mean = AE_TARGET_DEFAULT + 3 };

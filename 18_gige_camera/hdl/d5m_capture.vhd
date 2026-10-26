@@ -18,7 +18,18 @@ use work.cam_pkg.all;
 -- FILL_WORDS fill words (see cam_pkg). A
 -- line whose length is not a multiple of 8 ends with a zero-padded word.
 --
+-- Trim (for the mirrored readout camd uses): the sensor's window starts on an
+-- even row and column and has an even size, so a readout mirrored in both
+-- directions starts on an odd row and column and the Bayer order becomes
+-- G B / R G. With `trim` set, the sensor sends a window one pixel larger on
+-- every side, and this block drops the first line of each frame, the first
+-- pixel of each line, and everything beyond `max_width` pixels and
+-- `max_lines` lines: the first pixel kept is a G1 again (G R / B G).
+--
 -- `enable` comes from the fabric clock domain and is synchronized here.
+-- `trim`, `max_width` and `max_lines` are quasi-static: sampled at each
+-- frame start (a frame captured while they change fails the writer's size
+-- check).
 -- Capture starts at the next FRAME_VALID rise after it goes high, so frames
 -- are never cut. When the FIFO is full a word is dropped and the trailer
 -- reports it.
@@ -30,6 +41,9 @@ entity d5m_capture is
     fval    : in  std_logic;
     lval    : in  std_logic;
     enable  : in  std_logic;                     -- asynchronous
+    trim      : in  std_logic;                   -- quasi-static, see above
+    max_width : in  unsigned(11 downto 0);
+    max_lines : in  unsigned(11 downto 0);
 
     wr_en   : out std_logic;
     wr_data : out std_logic_vector(CAP_WORD_WIDTH - 1 downto 0);
@@ -61,6 +75,11 @@ architecture rtl of d5m_capture is
   signal and_acc     : std_logic_vector(11 downto 0) := (others => '1');
   signal overflow    : std_logic := '0';
   signal irregular   : std_logic := '0';
+  signal col         : unsigned(11 downto 0) := (others => '0');   -- pixels seen in the line
+  signal raw_lines   : unsigned(11 downto 0) := (others => '0');   -- lines seen in the frame
+  signal trim_f      : std_logic := '0';
+  signal width_f     : unsigned(11 downto 0) := (others => '0');
+  signal lines_f     : unsigned(11 downto 0) := (others => '0');
 
   signal trailer_pending : std_logic := '0';
   signal fill_left       : unsigned(4 downto 0) := (others => '0');
@@ -86,6 +105,9 @@ begin
     variable v_and       : std_logic_vector(11 downto 0);
     variable v_overflow  : std_logic;
     variable v_irregular : std_logic;
+    variable v_col       : unsigned(11 downto 0);
+    variable v_raw       : unsigned(11 downto 0);
+    variable keep_line   : boolean;
     variable v_pending   : std_logic;
     variable v_fill      : unsigned(4 downto 0);
     variable v_trailer   : std_logic_vector(CAP_WORD_WIDTH - 1 downto 0);
@@ -128,6 +150,8 @@ begin
       v_and       := and_acc;
       v_overflow  := overflow;
       v_irregular := irregular;
+      v_col       := col;
+      v_raw       := raw_lines;
       v_pending   := trailer_pending;
       v_fill      := fill_left;
       v_trailer   := trailer_word;
@@ -152,6 +176,11 @@ begin
         v_and       := (others => '1');
         v_overflow  := '0';
         v_irregular := '0';
+        v_col       := (others => '0');
+        v_raw       := (others => '0');
+        trim_f      <= trim;
+        width_f     <= max_width;
+        lines_f     <= max_lines;
       end if;
 
       -- ── Line period (measured between consecutive LINE_VALID rises) ─
@@ -163,30 +192,41 @@ begin
       end if;
 
       if v_active = '1' then
+        -- Trim (sampled at the frame start; trim_f is valid from the
+        -- first line on, which comes many cycles after FRAME_VALID).
+        keep_line := trim_f = '0' or (v_raw /= 0 and v_lines < lines_f);
+
         -- ── Pixel ─────────────────────────────────────────────────────
         if lval_r = '1' then
-          v_pack(8 * to_integer(v_k) + 7 downto 8 * to_integer(v_k)) := d_r(11 downto 4);
-          v_or  := v_or or d_r;
-          v_and := v_and and d_r;
-          v_pix := v_pix + 1;
-          if v_k = 7 then
-            push_pack;
-          else
-            v_k := v_k + 1;
+          if keep_line and (trim_f = '0' or (v_col /= 0 and v_pix < width_f)) then
+            v_pack(8 * to_integer(v_k) + 7 downto 8 * to_integer(v_k)) := d_r(11 downto 4);
+            v_or  := v_or or d_r;
+            v_and := v_and and d_r;
+            v_pix := v_pix + 1;
+            if v_k = 7 then
+              push_pack;
+            else
+              v_k := v_k + 1;
+            end if;
           end if;
+          v_col := v_col + 1;
         end if;
 
         -- ── Line end ──────────────────────────────────────────────────
         if lval_r = '0' and lval_d = '1' then
-          if v_k /= 0 then
-            push_pack;                 -- zero-padded partial word
+          if keep_line then
+            if v_k /= 0 then
+              push_pack;               -- zero-padded partial word
+            end if;
+            if v_lines /= 0 and v_pix /= v_last_px then
+              v_irregular := '1';
+            end if;
+            v_last_px := v_pix;
+            v_lines   := v_lines + 1;
           end if;
-          if v_lines /= 0 and v_pix /= v_last_px then
-            v_irregular := '1';
-          end if;
-          v_last_px := v_pix;
-          v_lines   := v_lines + 1;
-          v_pix     := (others => '0');
+          v_raw := v_raw + 1;
+          v_col := (others => '0');
+          v_pix := (others => '0');
         end if;
       end if;
 
@@ -236,6 +276,8 @@ begin
       and_acc         <= v_and;
       overflow        <= v_overflow;
       irregular       <= v_irregular;
+      col             <= v_col;
+      raw_lines       <= v_raw;
       trailer_pending <= v_pending;
       fill_left       <= v_fill;
       trailer_word    <= v_trailer;

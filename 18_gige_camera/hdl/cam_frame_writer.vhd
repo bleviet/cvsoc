@@ -55,6 +55,8 @@ use work.cam_pkg.all;
 --                                   bit 1: XCLKIN on (25 MHz = clk / 2)
 --                                   bit 2: TRIGGER pin
 --                                   bit 3: capture enable (d5m_capture)
+--                                   bit 4: trim (d5m_capture): drop the first
+--                                   line and pixel, keep WIDTH x HEIGHT
 --   0x44    I2C             R/W     bit 0: pull SCLK low, bit 1: pull SDATA low
 --                                   R/O bit 8: SCLK pin, bit 9: SDATA pin,
 --                                   bit 10: STROBE pin
@@ -187,7 +189,7 @@ architecture rtl of cam_frame_writer is
   signal reg_buf_base  : unsigned(31 downto 0) := (others => '0');
   signal reg_stride    : unsigned(31 downto 0) := (others => '0');
   signal reg_buf_count : unsigned(4 downto 0)  := to_unsigned(1, 5);
-  signal reg_sensor    : std_logic_vector(3 downto 0) := (others => '0');
+  signal reg_sensor    : std_logic_vector(4 downto 0) := (others => '0');
   signal reg_i2c       : std_logic_vector(1 downto 0) := (others => '0');
 
   signal frame_count   : unsigned(31 downto 0) := (others => '0');
@@ -304,6 +306,9 @@ begin
       fval    => d5m_fval,
       lval    => d5m_lval,
       enable  => reg_sensor(3),
+      trim      => reg_sensor(4),
+      max_width => reg_width(11 downto 0),
+      max_lines => reg_height(11 downto 0),
       wr_en   => cap_wr_en,
       wr_data => cap_wr_data,
       wr_full => cap_wr_full
@@ -437,7 +442,7 @@ begin
       when 13 => avs_readdata(4 downto 0) <= std_logic_vector(reg_buf_count);
       when 14 => avs_readdata <= std_logic_vector(to_unsigned(SENSOR_WIDTH, 32));
       when 15 => avs_readdata <= std_logic_vector(frame_cycles);
-      when 16 => avs_readdata(3 downto 0) <= reg_sensor;
+      when 16 => avs_readdata(4 downto 0) <= reg_sensor;
       when 17 =>
         avs_readdata(1 downto 0) <= reg_i2c;
         avs_readdata(8)  <= scl_s2;
@@ -497,7 +502,7 @@ begin
             else
               reg_buf_count <= unsigned(avs_writedata(4 downto 0));
             end if;
-          when 16 => reg_sensor <= avs_writedata(3 downto 0);
+          when 16 => reg_sensor <= avs_writedata(4 downto 0);
           when 17 => reg_i2c    <= avs_writedata(1 downto 0);
           when others => null;
         end case;

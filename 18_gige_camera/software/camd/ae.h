@@ -8,6 +8,10 @@
  * bounded so a saturated or black frame converges in a few steps. Exposure is
  * raised first, up to the frame time; gain (noise) only after that.
  *
+ * Auto white balance ("grey world") uses the same statistics: it sets the red
+ * and blue gains, relative to green, so the unclipped parts of the frame
+ * average to grey. Scenes dominated by one color fool it.
+ *
  * Pure functions, unit-tested on the host (test_ae.c); source_fpga.c runs
  * them on the latest frame in DDR.
  */
@@ -24,6 +28,8 @@ struct ae_stats {
     double mean;                        /* mean of all sampled pixels, 0..255 */
     double clipped;                     /* fraction of sampled 2x2 cells with a clipped pixel */
     uint32_t cells;                     /* 2x2 cells sampled */
+    /* Means of the BayerGR8 channels over the unclipped cells (0: none). */
+    double green, red, blue;
 };
 
 struct ae_limits {
@@ -41,6 +47,21 @@ struct ae_setting {
  * frame may be in uncached memory. */
 void ae_measure(const volatile uint8_t *frame, uint32_t width, uint32_t height,
                 uint32_t max_cells, struct ae_stats *s);
+
+/* One white balance step: update the red and blue gains relative to green
+ * (*wb_red, *wb_blue, 0.25 .. 4) from the statistics of a frame taken with
+ * them. Returns 1 if they changed. */
+int awb_step(const struct ae_stats *s, double *wb_red, double *wb_blue);
+
+/* Focus measure for adjusting the lens: the RMS brightness difference
+ * between neighbouring 2x2 cells, in percent of the mean brightness, over
+ * about `max_cells` cells in the central half (width and height) of the
+ * frame. Summing each cell first averages out the Bayer pattern and some
+ * noise. Squaring matters: the plain sum of differences across an edge is
+ * its height, however blurred. It peaks at best focus; its absolute value
+ * depends on the scene. */
+double ae_focus(const volatile uint8_t *frame, uint32_t width, uint32_t height,
+                uint32_t max_cells);
 
 /* One controller step: update *set from the statistics of a frame taken with
  * *set. Returns 1 if the setting changed (by more than the dead band), 0 if
