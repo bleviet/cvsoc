@@ -221,7 +221,7 @@ Each milestone ends with a demo and exit criteria. Risk is attacked first.
 |---|---|---|---|
 | **M0** | Throughput spike | UDP blaster on HPS Linux sending from a DDR buffer; jumbo frame test | Measured Mbit/s and packets/s at MTU 1500 and the largest working MTU, plus CPU load. Result recorded in ADR-001. |
 | **M1** | Walking skeleton | `test_pattern` → frame writer → DDR → `camd` GVSP; minimal GVCP + hand-written XML; test pattern → HDMI | `arv-viewer` discovers the camera and shows a moving test pattern; HDMI shows the same pattern. **GigE path done 2026-10-25** (Aravis `arv-test` passes, byte-exact frames). HDMI deferred until a monitor is available. |
-| **M2** | Sensor bring-up | D5M on GPIO header JP1: capture, I2C config, `BayerGR8`, fixed exposure, ROI; sensor → HDMI passthrough | Live sensor image on HDMI and in Aravis; Bayer phase confirmed; no FIFO overflows over 1 h |
+| **M2** | Sensor bring-up | D5M on GPIO header JP1: capture, I2C config, `BayerGR8`, fixed exposure, ROI; sensor → HDMI passthrough | Live sensor image on HDMI and in Aravis; Bayer phase confirmed; no FIFO overflows over 1 h. **In progress 2026-10-26:** sensor → GVSP works, all data lines verified; image and Bayer phase need light on the sensor, HDMI a monitor. |
 | **M3** | GenICam features | Generated regmap + XML; exposure, gain, ROI, pixel formats, software/hardware trigger, chunk timestamps | All §2 controls work from Aravis; XML validates; regmap freshness check in CI |
 | **M4** | ISP + 3A | Full ISP chain, `RGB8`, auto exposure / auto white balance from FPGA statistics; HDMI stage tap and split screen | Every ISP stage passes golden-model bit-exact tests; AE converges in under 1 s after a lighting step |
 | **M5** | Performance | V4L2 driver with dmabuf zero-copy, packet resend, `BayerGR12p`, DDR port tuning, HDMI frame-buffer reader with scaler and triple-buffering | Full-res `BayerGR8` at sensor-limited fps with <0.01 % resends; DDR budget measured and documented |
@@ -268,6 +268,7 @@ Follows the repo's per-project conventions. Like the FPGA phases, it has its own
 | ADR-006 | `camd` in C, matching the existing servers in `11_*` and `17_*` | M3 |
 | ADR-007 | HDMI preview default 720p60 to protect DDR bandwidth | M5 |
 | ADR-008 | **Accepted (M1).** Frames go through the FPGA-to-HPS AXI bridge; FPGA-to-SDRAM ports wait for an image whose preloader matches the design | M5 |
+| ADR-009 | **Accepted (M2).** camd bit-bangs the sensor's I2C through a CSR; the board image has no kernel I2C master for the FPGA pins | M5 |
 
 ---
 
@@ -277,8 +278,8 @@ Follows the repo's per-project conventions. Like the FPGA phases, it has its own
 |---|---|---|---|---|
 | R1 | A9 Linux cannot send UDP fast enough | ~~High~~ Low | High | **Retired by M0**: one core meets full-res `BayerGR8` ≈ 14 fps at MTU 1500. Remaining: streaming owns one core; zero-copy in M5. |
 | R2 | EMAC FIFO / driver limits jumbo frames | Occurred | Medium | **M0**: max MTU is 3796, not 9000. 3768-byte packets still give 936 Mbit/s per core, so the impact is accepted. |
-| R3 | Signal integrity of 12-bit parallel bus at high PIXCLK over the 40-pin header | Medium | Medium | Start at reduced PIXCLK; capture-side timing constraints; test-pattern mode on the sensor itself |
-| R4 | D5M pin mapping differs from Terasic reference designs (written for other boards) | High | Low | Port pinout carefully; verify each signal with SignalTap |
+| R3 | Signal integrity of 12-bit parallel bus at high PIXCLK over the 40-pin header | Occurred | Medium | **M2:** even at 25 MHz, the sensor's default DOUT slew rate glitched every frame when all 12 lines switched together; fixed with the slowest DOUT slew (R0x07 = 0x0382). `camd --sensor-test` counts glitched frames. Repeat before raising PIXCLK. |
+| R4 | D5M pin mapping differs from Terasic reference designs (written for other boards) | ~~High~~ Retired | Low | **Retired by M2:** pinout taken from the TRDB-D5M and DE10-Nano manuals; every data line verified with the sensor's color-field test pattern (`camd --sensor-test`) instead of SignalTap. |
 | R5 | DDR bandwidth contention (writer + EMAC + HDMI + CPU) | Medium | High | §3 budget; per-port priority/weights; 720p preview default |
 | R6 | GigE Vision spec access | Medium | Medium | Obtain spec from A3; use Aravis source, `arv-fake-gv-camera`, and Wireshark dissectors as open references |
 | R7 | Scope creep (it is a "startup") | High | Medium | Strict milestone exit criteria; anything outside the §2 datasheet waits for v1.1 |
