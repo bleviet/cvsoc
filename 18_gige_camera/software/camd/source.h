@@ -2,8 +2,9 @@
  * source.h — where camd's frames come from.
  *
  * sim:  frames are generated in software (no FPGA needed).
- * fpga: frames are written to reserved DDR by the FPGA test-pattern
- *       generator (hdl/cam_tpg_writer.vhd), later the sensor pipeline.
+ * fpga: frames are written to reserved DDR by the FPGA
+ *       (hdl/cam_frame_writer.vhd): from the D5M sensor when TestPattern is
+ *       Off, otherwise from its test-pattern generator.
  */
 #ifndef SOURCE_H
 #define SOURCE_H
@@ -24,13 +25,33 @@ struct frame_source {
                            uint32_t frame_no);
     /* Optional: acquisition stopped (e.g. stop the hardware writer). */
     void (*idle)(struct frame_source *src);
+    /* Optional: highest AcquisitionFrameRate `img` allows (default
+     * FRAME_RATE_MAX). Cheap and lock-free: called under the camera lock. */
+    float (*max_frame_rate)(struct frame_source *src, const struct image_cfg *img);
+    /* Optional: sensor frames lost to FIFO overflows and dropped for a size
+     * mismatch, since camd started. */
+    void (*counters)(struct frame_source *src, uint32_t *overflows, uint32_t *bad_frames);
     void (*close)(struct frame_source *src);
+    int has_sensor;                     /* TestPattern Off shows a real image */
     void *priv;
+};
+
+/* Fixed sensor settings until M3 makes them GenICam features. */
+struct sensor_opts {
+    double exposure_us;
+    double gain;
 };
 
 struct frame_source *source_sim_open(uint32_t sensor_width, uint32_t sensor_height);
 struct frame_source *source_fpga_open(uint32_t sensor_width, uint32_t sensor_height,
-                                      uint32_t fb_base, uint32_t fb_size);
+                                      uint32_t fb_base, uint32_t fb_size,
+                                      const struct sensor_opts *opts);
+/* Bring-up check of the D5M data lines with the sensor's color-field test
+ * pattern (camd --sensor-test). Returns 0 if every line works. */
+int source_fpga_sensor_test(void);
+/* Bring-up: read ("0x49") or write ("0x49=0x00a8") sensor registers in
+ * order, then print the capture statistics (camd --sensor-reg). */
+int source_fpga_sensor_regs(char **specs, int n);
 
 /*
  * Test-pattern definition shared by the sim source, the FPGA generator and

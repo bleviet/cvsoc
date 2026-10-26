@@ -203,7 +203,8 @@ static void *stream_thread(void *arg)
         frame_no++;
 
         pthread_mutex_lock(&c->lock);
-        c->frames_sent++;
+        if (frame)
+            c->frames_sent++;
     }
     pthread_mutex_unlock(&c->lock);
     return NULL;

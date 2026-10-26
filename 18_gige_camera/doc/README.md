@@ -10,7 +10,8 @@ milestones M0–M6, risks) is in
 |---|---|
 | **M0: Throughput spike** | Done 2026-10-25: [ADR-001](adr/ADR-001-gvsp-packetization.md) accepted provisionally; end-to-end loss check pending a ≥1 Gbit/s receiver |
 | **M1: Walking skeleton** | GigE path done 2026-10-25: FPGA test pattern → DDR → `camd` → GVSP passes Aravis's `arv-test`. HDMI output deferred (no monitor yet), see [M1](#m1-walking-skeleton) |
-| M2–M6 | Not started |
+| **M2: Sensor bring-up** | In progress: D5M → FPGA → DDR → `camd` → GVSP works, data lines verified; image quality and Bayer phase wait for light on the sensor, HDMI for a monitor. See [M2](#m2-sensor-bring-up) |
+| M3–M6 | Not started |
 
 Architecture decisions are recorded in [`adr/`](adr/).
 
@@ -182,7 +183,7 @@ cam_tpg_writer (FPGA) ──F2H AXI bridge──► DDR 0x3C000000, 13-buffer ri
 
 | Piece | Where | Notes |
 |---|---|---|
-| Test-pattern generator + frame writer | `hdl/cam_tpg_writer.vhd` | 8 pixels/clock at 50 MHz. 64-bit Avalon bursts of 16 beats, never crossing 4 KB. A frame is reported done only after every burst's write response. |
+| Test-pattern generator + frame writer | `hdl/cam_tpg_writer.vhd` (renamed `cam_frame_writer.vhd` in M2) | 8 pixels/clock at 50 MHz. 64-bit Avalon bursts of 16 beats, never crossing 4 KB. A frame is reported done only after every burst's write response. |
 | Platform Designer system | `qsys/hps_system.tcl` | HPS DDR3 settings from `15_ddr3_fpga_hps`, FPGA-to-HPS AXI bridge instead of SDRAM ports ([ADR-008](adr/ADR-008-frame-write-path.md)) |
 | Camera daemon | `software/camd/` | GVCP server and GVSP streamer in C. `--sim` generates frames in software; `--fpga` streams the FPGA's buffers. The GenICam XML is embedded in the binary. |
 | GenICam description | `software/camd/genicam/cvsoc_camera.xml` | SFNC features: sensor/ROI, `PixelFormat` (`Mono8`, `BayerGR8`), `TestPattern`, acquisition, `AcquisitionFrameRate`, `GevSCPSPacketSize`. Validates against GenApi 1.1. |
@@ -203,8 +204,8 @@ cam_tpg_writer (FPGA) ──F2H AXI bridge──► DDR 0x3C000000, 13-buffer ri
 
 ```bash
 cd 18_gige_camera
-make test                   # camd protocol tests, no board (18 tests)
-make sim                    # RTL tests with GHDL, SENSOR_WIDTH 640 and 2592 (2 x 8 tests)
+make test                   # camd protocol tests, no board
+make sim                    # RTL tests with GHDL, SENSOR_WIDTH 640 and 2592
 make fpga                   # Platform Designer + Quartus + compressed .rbf (~9 min)
 make load-fpga HOST=de10nano
 make run-camd HOST=de10nano
@@ -279,8 +280,125 @@ root there.
 
 - **HDMI output** (test pattern → HDMI, ADV7513 bring-up) needs a monitor to
   verify. It is deferred until one is available.
-- The pixel generator is one combinational path. Pipeline it before raising
-  the clock for the sensor in M2.
+- ~~The pixel generator is one combinational path. Pipeline it before raising
+  the clock for the sensor in M2.~~ Done in M2: the generator is one
+  registered word ahead of the writer (worst setup slack +0.93 → +1.57 ns).
+
+---
+
+## M2: Sensor bring-up
+
+The D5M replaces the test pattern as the frame source. `TestPattern` = `Off`
+streams the sensor; the FPGA test patterns stay available for verification.
+
+```text
+MT9P001 ──JP1──► d5m_capture ──async_fifo──► cam_frame_writer ──F2H AXI──► DDR ring
+  ▲ PIXCLK domain (25 MHz)      (Gray pointers)   50 MHz fabric clock            │
+  │ I2C, bit-banged from camd (ADR-009)                                         ▼
+  └───────────────── camd --fpga: window = ROI, blanking = frame rate ── GVSP ──► PC
+```
+
+### Pieces
+
+| Piece | Where | Notes |
+|---|---|---|
+| Pixel bus capture | `hdl/d5m_capture.vhd` | PIXCLK domain. Samples DOUT/FVAL/LVAL in the I/O registers, keeps DOUT[11:4], packs 8 pixels per word. Every frame ends with a trailer: lines, last line length, line period, OR/AND of all 12-bit pixels, overflow and irregular-line flags. |
+| Clock-domain crossing | `hdl/async_fifo.vhd` | 512 × 68-bit dual-clock FIFO, Gray-coded pointers, first-word fall-through |
+| Frame writer | `hdl/cam_frame_writer.vhd` | Sensor or test-pattern source. A sensor frame is published only if it has exactly Width × Height pixels; others count in `CaptureBadFrames`. A burst starts only when all its words are ready, so `write` never drops mid-burst. |
+| Word format | `hdl/cam_pkg.vhd` | Pixel, start-of-frame, trailer and fill words |
+| Sensor driver | `software/camd/mt9p001.c`, `i2c_bitbang.c` | Register map and timing model (row time, blanking, shutter) from the datasheet, unit-tested in `make test`; I2C bit-banged through the writer's `I2C` register ([ADR-009](adr/ADR-009-sensor-i2c.md)) |
+| Pin assignments | `quartus/de10_nano_pin_assignments.tcl` | JP1 header pin ↔ D5M signal ↔ FPGA pin, from the TRDB-D5M and DE10-Nano user manuals |
+| Bring-up tools | `camd --sensor-test`, `camd --sensor-reg`, `client/grab.py`, `client/soak.py` | Data-line test, register peek/poke, PNG snapshot, long streaming run |
+
+New camera features: `AcquisitionFrameRate`'s maximum follows the ROI (the
+sensor at 25 MHz PIXCLK does 3.67 fps at full resolution), and two
+diagnostics counters, `CaptureOverflows` and `CaptureBadFrames`.
+
+### Procedure
+
+```bash
+make sim                                   # 2 x 16 RTL tests incl. a D5M bus model
+make test                                  # + MT9P001 timing-model unit test
+make fpga && make load-fpga HOST=de10nano
+make sensor-test HOST=de10nano             # all 12 data lines, glitch count
+make run-camd HOST=de10nano                # camd --fpga [--exposure-us 20000] [--gain 2.0]
+
+# On a PC on the board's link:
+python3 client/grab.py --host 192.168.10.2 --fps 3 --out frame.png
+python3 client/soak.py --host 192.168.10.2 --duration 3600
+```
+
+`camd --fpga` starts the sensor and measures its minimum horizontal blank
+from one full-width frame before it serves GVCP:
+
+```text
+camd: MT9P001 chip version 0x1801
+camd: sensor frame 2592x1944, line 3492 PIXCLKs, frame 272.8 ms
+camd: HBmin 450, full-res max 3.67 fps at 25 MHz PIXCLK
+```
+
+### Results (2026-10-26)
+
+- **Wiring:** the sensor answers on I2C (chip version 0x1801), and frames
+  arrive with exactly the configured size. `camd --sensor-test` passes:
+  OR = AND = the programmed value for all-zeros, all-ones, 0x555, 0xAAA and
+  walking ones, 20 frames each, no glitched frames.
+- **Timing model:** with the power-up defaults the measured line is 3492
+  PIXCLKs and the frame 275.2 ms. The model predicts LROW = 1296 + 450 and
+  (1944 + 26) × 3492 / 25 MHz = 275.1 ms. HBmin measured 450, as in later
+  datasheets (Rev C's table says 782).
+- **Aravis:** `arv-test` passes with `TestPattern` = `Off`, i.e. with the
+  sensor pacing the frames: continuous acquisition 10/10 at 3.00 Hz and
+  2.50 Hz, single acquisition, GigE Vision checks. The FPGA test patterns
+  are still byte-exact (`verify_stream.py`).
+- **Soak (`client/soak.py`):** 25 minutes at full resolution and the
+  sensor's maximum rate (3.665 fps, gain 15 for maximum data-line activity):
+  5497 frames complete, 0 incomplete, 0 missing, 0 capture overflows,
+  0 bad frames. The planned hour was cut short; an earlier attempt was
+  interrupted by the lab USB NIC dropping its link (R9), which `soak.py` now
+  rides out.
+- **FPGA:** 1,263 ALMs (3 %), the capture FIFO in 4 M10K blocks. Timing met:
+  fabric +1.57 ns setup slack, PIXCLK (constrained at 25 MHz) +14.5 ns.
+- **Image:** the stream works end to end (full resolution, 0 overflows,
+  0 bad frames), but the lab was dark: even at 400 ms and 8× gain the mean is
+  the black level (10 of 255). Image content and the Bayer phase are still to
+  be checked with light on the sensor.
+
+### Findings along the way
+
+- **The data lines glitch at the sensor's default output slew rate.** With
+  the color field at 0xFFF (all 12 lines switching together) every frame had
+  a line one pixel too long: switching noise corrupted LINE_VALID or PIXCLK
+  (plan risk R3), even at 25 MHz. A sweep of R0x07 bits 12:10 (DOUT slew,
+  undocumented in Rev C) against bits 9:7 (PIXCLK slew), 4 frames each:
+
+  | DOUT slew \ PIXCLK slew | 0 | 1 | 2 | 3 | 7 |
+  |---|---|---|---|---|---|
+  | 0 | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 |
+  | 1 | 4/4 | 0/4 | 4/4 | 4/4 | 4/4 |
+  | 2, 3, 7 | 4/4 | 4/4 | 4/4 | 4/4 | 4/4 |
+
+  camd runs the sensor at DOUT slew 0 (R0x07 = 0x0382). Re-check this before
+  raising PIXCLK.
+- **The sensor's test pattern is invisible with Row BLC on.** It enters the
+  data path before the digital black-level correction, which subtracts the
+  dark-column average (the pattern itself) and adds Row_Black_Target: every
+  value read 0x0A8. `--sensor-test` turns Row BLC and the black offset off
+  while the pattern runs.
+- The writer's frame checks (exact size, published only after a trailer)
+  drop the frames the sensor sends while it reconfigures, so a ROI change
+  never reaches the client as a torn frame.
+
+### Open (M2)
+
+- **Light:** a frame of a real scene to check the image and confirm the
+  Bayer phase (expected GR from the datasheet; `client/grab.py` prints the
+  CFA channel means and saves a debayered PNG).
+- **HDMI passthrough:** needs a monitor (as in M1).
+- **Faster PIXCLK:** the sensor PLL can reach ~96 MHz (14 fps full
+  resolution). Needs XCLKIN within the PLL's 6–27 MHz input range (25 MHz
+  is), the SDC tightened, the capture timing re-checked, and the slew sweep
+  repeated.
 
 ---
 
@@ -292,10 +410,11 @@ root there.
 ├── doc/
 │   ├── README.md            # this file
 │   └── adr/                 # architecture decision records
-├── hdl/                     # cam_tpg_writer.vhd, de10_nano_top.vhd
-├── qsys/                    # hps_system.tcl, cam_tpg_writer_hw.tcl
+├── hdl/                     # cam_frame_writer.vhd, d5m_capture.vhd, async_fifo.vhd,
+│                            # cam_pkg.vhd, de10_nano_top.vhd
+├── qsys/                    # hps_system.tcl, cam_frame_writer_hw.tcl
 ├── quartus/                 # project/pin/timing TCL, Makefile (Quartus flow)
-├── sim/                     # cocotb tests (run.py, test_cam_tpg_writer.py)
+├── sim/                     # cocotb tests (run.py, test_cam_frame_writer.py)
 ├── software/
 │   ├── camd/                # GigE Vision camera daemon + GenICam XML
 │   └── spike/               # M0: gvsp_blast.c, gvsp_sink.c, eth_pause.c
@@ -304,6 +423,8 @@ root there.
 │   ├── tpg_model.py         # test-pattern golden model
 │   ├── test_camd.py         # camd protocol tests (make test)
 │   ├── verify_stream.py     # byte-exact stream check against a live camera
+│   ├── grab.py              # save one frame as PNG, print CFA channel means
+│   ├── soak.py              # long streaming run: capture and network losses
 │   ├── arv-test.cfg         # Aravis acceptance configuration
 │   ├── test_spike.py        # M0 loopback self-test
 │   └── m0_sweep.py          # M0 board sweep + MTU probe

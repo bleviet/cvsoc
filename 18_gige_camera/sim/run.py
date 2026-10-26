@@ -23,8 +23,9 @@ def run(width):
     build_dir = SIM_DIR / "sim_build" / f"w{width}"
     runner = get_runner("ghdl")
     runner.build(
-        sources=[PROJECT / "hdl" / "cam_tpg_writer.vhd"],
-        hdl_toplevel="cam_tpg_writer",
+        sources=[PROJECT / "hdl" / f for f in
+                 ("cam_pkg.vhd", "async_fifo.vhd", "d5m_capture.vhd", "cam_frame_writer.vhd")],
+        hdl_toplevel="cam_frame_writer",
         build_args=["--std=08"],
         parameters={"SENSOR_WIDTH": width},
         build_dir=build_dir,
@@ -32,8 +33,8 @@ def run(width):
     )
     os.environ["SENSOR_WIDTH"] = str(width)
     results = runner.test(
-        hdl_toplevel="cam_tpg_writer",
-        test_module="test_cam_tpg_writer",
+        hdl_toplevel="cam_frame_writer",
+        test_module="test_cam_frame_writer",
         test_dir=SIM_DIR,
         build_dir=build_dir,
         test_args=["--std=08", f"--workdir={build_dir}"],
@@ -48,7 +49,7 @@ def main():
                    help="SENSOR_WIDTH generic (default: 640 and 2592)")
     args = p.parse_args()
     for width in args.width or [640, 2592]:
-        print(f"=== cam_tpg_writer, SENSOR_WIDTH={width} ===", flush=True)
+        print(f"=== cam_frame_writer, SENSOR_WIDTH={width} ===", flush=True)
         run(width)
 
 

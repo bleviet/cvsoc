@@ -1,21 +1,22 @@
 package require -exact qsys 12.0
 
 # ---------------------------------------------------------------------------
-# 18_gige_camera M1 system for DE10-Nano (Cyclone V 5CSEBA6U23I7)
+# 18_gige_camera system for DE10-Nano (Cyclone V 5CSEBA6U23I7)
 #
 # Components:
 #   - HPS Cortex-A9 with DDR3-800 SDRAM controller (settings from 15_ddr3_fpga_hps)
 #   - Lightweight HPS-to-FPGA AXI bridge (2 MB window at 0xFF200000)
 #   - FPGA-to-HPS AXI bridge (64-bit slave): FPGA masters see the HPS address
 #     map, so DDR is at its physical address (frame buffers at 0x3C000000)
-#   - cam_tpg_writer: test-pattern generator + DDR frame writer
+#   - cam: cam_frame_writer, D5M capture + test-pattern generator + DDR
+#     frame writer; its d5m conduit is exported to the top level
 #
 # Frames go through the FPGA-to-HPS AXI bridge rather than the FPGA-to-SDRAM
 # ports: the SDRAM ports are configured by the preloader and cannot be safely
 # reconfigured once Linux runs from SDRAM (ADR-008).
 #
 # ARM address map (LW bridge window):
-#   0xFF200000  cam_tpg_writer  CSRs (see hdl/cam_tpg_writer.vhd)
+#   0xFF200000  cam_frame_writer  CSRs (see hdl/cam_frame_writer.vhd)
 # ---------------------------------------------------------------------------
 
 create_system hps_system
@@ -96,8 +97,8 @@ set_instance_parameter_value clk_0 clockFrequency      {50000000}
 set_instance_parameter_value clk_0 clockFrequencyKnown {1}
 set_instance_parameter_value clk_0 resetSynchronousEdges {NONE}
 
-# ── Camera test-pattern writer (custom component) ─────────────────────────
-add_instance cam cam_tpg_writer
+# ── Camera frame writer (custom component) ────────────────────────────────
+add_instance cam cam_frame_writer
 set_instance_parameter_value cam SENSOR_WIDTH {2592}
 
 # ── Clock connections ──────────────────────────────────────────────────────
@@ -125,6 +126,9 @@ set_interface_property reset EXPORT_OF clk_0.clk_in_reset
 
 add_interface memory memory master
 set_interface_property memory EXPORT_OF hps_0.memory
+
+add_interface d5m conduit end
+set_interface_property d5m EXPORT_OF cam.d5m
 
 save_system hps_system.qsys
 puts "hps_system.qsys saved successfully"

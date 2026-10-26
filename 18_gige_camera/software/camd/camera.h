@@ -31,7 +31,10 @@
 #define REG_TEST_PATTERN        0x00010030
 #define REG_TL_PARAMS_LOCKED    0x00010034
 #define REG_FRAMES_SENT         0x00010038  /* RO, diagnostics */
-#define REG_LAST                REG_FRAMES_SENT
+#define REG_FRAME_RATE_MAX      0x0001003C  /* RO float: depends on ROI and source */
+#define REG_CAPTURE_OVERFLOWS   0x00010040  /* RO, diagnostics */
+#define REG_CAPTURE_BAD_FRAMES  0x00010044  /* RO, diagnostics */
+#define REG_LAST                REG_CAPTURE_BAD_FRAMES
 
 #define XML_ADDR                0x00100000
 
@@ -40,11 +43,11 @@
 #define HEIGHT_MIN      2
 #define HEIGHT_INC      2
 #define FRAME_RATE_MIN  1.0f
-#define FRAME_RATE_MAX  60.0f
+#define FRAME_RATE_MAX  60.0f           /* test patterns; the sensor is slower */
 #define PACKET_SIZE_MIN 576
 
 enum test_pattern {
-    TEST_PATTERN_OFF = 0,               /* sensor image; black until M2 */
+    TEST_PATTERN_OFF = 0,               /* sensor image (camd --fpga with a D5M) */
     TEST_PATTERN_GREY_HRAMP_MOVING = 1,
     TEST_PATTERN_COLOR_BAR = 2,
 };
@@ -72,6 +75,8 @@ struct cam_identity {
     const char *xml_name;
 };
 
+struct frame_source;
+
 struct camera {
     pthread_mutex_t lock;
     pthread_cond_t  changed;
@@ -92,11 +97,15 @@ struct camera {
     const uint8_t *xml;
     size_t   xml_len;
     uint64_t ts_epoch_ns;              /* timestamp counter reset point */
+
+    struct frame_source *src;          /* frame-rate limit and capture counters */
 };
 
 void     cam_init(struct camera *c, const struct cam_identity *id);
 void     cam_set_network(struct camera *c, const uint8_t mac[6],
                          struct in_addr ip, struct in_addr mask);
+/* Attach the frame source; with a sensor, TestPattern starts at Off. */
+void     cam_attach_source(struct camera *c, struct frame_source *src);
 uint64_t cam_timestamp(const struct camera *c);   /* ns since reset */
 
 /* GVCP-facing accessors; return a GEV_STATUS_* code. Caller holds no lock.

@@ -1,4 +1,4 @@
-# Makefile for the 18_gige_camera Quartus project (M1 FPGA design).
+# Makefile for the 18_gige_camera Quartus project (FPGA design).
 # Orchestrates: Platform Designer → Quartus compile → compressed .rbf.
 #
 # FPGA build steps run via the shared quartus-version.mk fragment (local 25.1
@@ -20,7 +20,7 @@ NEEDS_SOFTWARE_TOOLS ?= 0
 
 include ../../common/make/quartus-version.mk
 
-# qsys-generate must find the custom cam_tpg_writer component, whose TCL
+# qsys-generate must find the custom cam_frame_writer component, whose TCL
 # descriptor lives in ../qsys/. The trailing "$$" keeps Platform Designer's
 # default search path.
 QSYS_SP = --search-path=$(QROOT)/$(PROJECT_NAME)/qsys,$$

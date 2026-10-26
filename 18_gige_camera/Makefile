@@ -5,11 +5,12 @@
 # Targets, run from this directory (make help lists them all):
 #   make camd-host               — Build camd (GigE Vision daemon) for this PC
 #   make camd-cross              — Static ARM build of camd for the DE10-Nano
-#   make test                    — camd protocol tests + spike self-test (no board)
-#   make sim                     — cocotb RTL tests of cam_tpg_writer (GHDL)
+#   make test                    — camd unit + protocol tests, spike self-test (no board)
+#   make sim                     — cocotb RTL tests of cam_frame_writer (GHDL)
 #   make fpga                    — Platform Designer + Quartus compile + compressed .rbf
 #   make load-fpga HOST=<ip>     — Load quartus/de10_nano.rbf on the board (fpga_load)
 #   make run-camd HOST=<ip>      — Start camd --fpga on the board
+#   make sensor-test HOST=<ip>   — Check the D5M data lines (camd --sensor-test)
 #
 # Milestone M0 (throughput spike):
 #   make spike-host              — Build gvsp_blast + gvsp_sink for this PC
@@ -45,7 +46,7 @@ SINK_HOST ?=
 SINK_BIN  ?=
 
 .PHONY: all help camd-host camd-cross spike-host spike-cross test sim fpga \
-        load-fpga run-camd deploy m0-probe-mtu m0-sweep clean
+        load-fpga run-camd sensor-test deploy m0-probe-mtu m0-sweep clean
 
 all: camd-host camd-cross spike-host spike-cross
 
@@ -53,11 +54,12 @@ help:
 	@echo "Targets (18_gige_camera — GigE Vision camera):"
 	@echo "  camd-host                   — Build camd for this PC (run with --sim)"
 	@echo "  camd-cross                  — Static ARM build of camd (cvsoc/tools container)"
-	@echo "  test                        — camd protocol tests + spike loopback test (no board)"
-	@echo "  sim                         — cocotb RTL tests of cam_tpg_writer (GHDL)"
+	@echo "  test                        — camd unit + protocol tests, spike loopback test (no board)"
+	@echo "  sim                         — cocotb RTL tests of cam_frame_writer (GHDL)"
 	@echo "  fpga                        — Platform Designer + Quartus + compressed .rbf"
 	@echo "  load-fpga HOST=<ip>         — Load the .rbf on the board with fpga_load"
 	@echo "  run-camd HOST=<ip>          — Deploy and start camd --fpga on the board"
+	@echo "  sensor-test HOST=<ip>       — Deploy camd and check the D5M data lines"
 	@echo ""
 	@echo "M0 throughput spike:"
 	@echo "  spike-host                  — Build gvsp_blast + gvsp_sink for this PC"
@@ -108,6 +110,13 @@ run-camd: camd-cross
 	scp $(CAMD_DIR)/build/arm/camd $(HPS_USER)@$(HOST):/tmp/camd
 	ssh $(HPS_USER)@$(HOST) 'nohup /tmp/camd --fpga >/tmp/camd.log 2>&1 & sleep 1.5; cat /tmp/camd.log'
 
+# camd owns the sensor while it runs, so it is stopped first.
+sensor-test: camd-cross
+	$(REQUIRE_HOST)
+	ssh $(HPS_USER)@$(HOST) 'killall camd 2>/dev/null; sleep 0.5; true'
+	scp $(CAMD_DIR)/build/arm/camd $(HPS_USER)@$(HOST):/tmp/camd
+	ssh $(HPS_USER)@$(HOST) /tmp/camd --sensor-test
+
 # ── Spike tools ──────────────────────────────────────────────────────────────
 spike-host:
 	$(MAKE) -C $(SPIKE_DIR)
@@ -117,6 +126,7 @@ spike-cross:
 	@echo "Binaries: $(SPIKE_DIR)/build/arm/gvsp_blast $(SPIKE_DIR)/build/arm/eth_pause"
 
 test: camd-host spike-host
+	$(MAKE) -C $(CAMD_DIR) check
 	python3 client/test_camd.py
 	python3 client/test_spike.py
 

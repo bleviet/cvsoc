@@ -1,19 +1,22 @@
-# cam_tpg_writer_hw.tcl
+# cam_frame_writer_hw.tcl
 #
-# Platform Designer component descriptor for the camd test-pattern generator
-# and DDR frame writer (hdl/cam_tpg_writer.vhd).
+# Platform Designer component descriptor for the camera frame source and DDR
+# frame writer (hdl/cam_frame_writer.vhd, with d5m_capture and async_fifo).
 #
-# The component has two Avalon-MM interfaces:
-#   - avs: slave (control/status registers, on the LW bridge)
-#   - avm: 64-bit burst master with write responses (frame writes into HPS DDR
-#          through the FPGA-to-HPS AXI bridge)
+# Interfaces:
+#   - avs: Avalon-MM slave (control/status registers, on the LW bridge)
+#   - avm: 64-bit Avalon-MM burst master with write responses (frame writes
+#          into HPS DDR through the FPGA-to-HPS AXI bridge)
+#   - d5m: conduit to the TRDB-D5M pins, exported to the top level. PIXCLK is
+#          a plain conduit signal: it clocks only logic inside this component,
+#          and quartus/de10_nano.sdc constrains it.
 
 package require -exact qsys 12.0
 
-set_module_property NAME                 cam_tpg_writer
-set_module_property DISPLAY_NAME         "Camera Test Pattern Writer"
-set_module_property VERSION              1.0
-set_module_property DESCRIPTION          "Test-pattern generator writing frames into HPS DDR for camd"
+set_module_property NAME                 cam_frame_writer
+set_module_property DISPLAY_NAME         "Camera Frame Writer"
+set_module_property VERSION              2.0
+set_module_property DESCRIPTION          "D5M capture and test-pattern generator writing frames into HPS DDR for camd"
 set_module_property GROUP                "Custom"
 set_module_property AUTHOR               "cvsoc"
 set_module_property INSTANTIATE_IN_SYSTEM_MODULE true
@@ -21,8 +24,11 @@ set_module_property EDITABLE             false
 
 # ── Source files ──────────────────────────────────────────────────────────────
 add_fileset          QUARTUS_SYNTH QUARTUS_SYNTH "" ""
-set_fileset_property QUARTUS_SYNTH TOP_LEVEL    cam_tpg_writer
-add_fileset_file     cam_tpg_writer.vhd VHDL PATH ../hdl/cam_tpg_writer.vhd TOP_LEVEL_FILE
+set_fileset_property QUARTUS_SYNTH TOP_LEVEL    cam_frame_writer
+add_fileset_file     cam_pkg.vhd          VHDL PATH ../hdl/cam_pkg.vhd
+add_fileset_file     async_fifo.vhd       VHDL PATH ../hdl/async_fifo.vhd
+add_fileset_file     d5m_capture.vhd      VHDL PATH ../hdl/d5m_capture.vhd
+add_fileset_file     cam_frame_writer.vhd VHDL PATH ../hdl/cam_frame_writer.vhd TOP_LEVEL_FILE
 
 # ── Parameters ────────────────────────────────────────────────────────────────
 add_parameter          SENSOR_WIDTH POSITIVE 2592
@@ -49,7 +55,7 @@ set_interface_property avs readWaitTime           0
 set_interface_property avs writeWaitTime          0
 set_interface_property avs ENABLED                true
 
-add_interface_port   avs avs_address   address   Input  4
+add_interface_port   avs avs_address   address   Input  5
 add_interface_port   avs avs_read      read      Input  1
 add_interface_port   avs avs_readdata  readdata  Output 32
 add_interface_port   avs avs_write     write     Input  1
@@ -74,3 +80,20 @@ add_interface_port   avm avm_byteenable         byteenable         Output 8
 add_interface_port   avm avm_waitrequest        waitrequest        Input  1
 add_interface_port   avm avm_writeresponsevalid writeresponsevalid Input  1
 add_interface_port   avm avm_response           response           Input  2
+
+# ── Conduit: TRDB-D5M on GPIO header JP1 ──────────────────────────────────────
+add_interface        d5m conduit end
+set_interface_property d5m ENABLED true
+
+add_interface_port   d5m d5m_pixclk  pixclk  Input  1
+add_interface_port   d5m d5m_d       d       Input  12
+add_interface_port   d5m d5m_fval    fval    Input  1
+add_interface_port   d5m d5m_lval    lval    Input  1
+add_interface_port   d5m d5m_strobe  strobe  Input  1
+add_interface_port   d5m d5m_xclkin  xclkin  Output 1
+add_interface_port   d5m d5m_reset_n reset_n Output 1
+add_interface_port   d5m d5m_trigger trigger Output 1
+add_interface_port   d5m d5m_scl_oe  scl_oe  Output 1
+add_interface_port   d5m d5m_sda_oe  sda_oe  Output 1
+add_interface_port   d5m d5m_scl_in  scl_in  Input  1
+add_interface_port   d5m d5m_sda_in  sda_in  Input  1

@@ -99,6 +99,7 @@ class CamdTest(unittest.TestCase):
                         "OffsetX", "OffsetY", "PixelFormat",
                         "PayloadSize", "AcquisitionMode", "AcquisitionStart",
                         "AcquisitionStop", "AcquisitionFrameRate", "TestPattern",
+                        "CaptureOverflows", "CaptureBadFrames",
                         "GevSCPSPacketSize", "TLParamsLocked", "DeviceVendorName",
                         "DeviceModelName", "DeviceSerialNumber", "Device"):
             self.assertIn(feature, names)
@@ -188,6 +189,16 @@ class CamdTest(unittest.TestCase):
         self.assertStatus(gev.WRITE_PROTECT, self.cam.write_reg, reg["PAYLOAD_SIZE"], 1)
         self.assertStatus(gev.BAD_ALIGNMENT, self.cam.write_reg, reg["WIDTH"] + 1, 1)
         self.assertStatus(gev.INVALID_ADDRESS, self.cam.read_reg, 0x20000)
+
+    def test_frame_rate_max_and_capture_counters(self):
+        """--sim has no sensor: test patterns run up to 60 fps, and the
+        capture diagnostics stay at zero."""
+        self.assertEqual(self.cam.read_float(gev.REG["FRAME_RATE_MAX"]), 60.0)
+        self.cam.write_float(gev.REG["FRAME_RATE"], 60.0)
+        self.assertEqual(self.cam.read_reg(gev.REG["CAPTURE_OVERFLOWS"]), 0)
+        self.assertEqual(self.cam.read_reg(gev.REG["CAPTURE_BAD_FRAMES"]), 0)
+        self.assertStatus(gev.WRITE_PROTECT, self.cam.write_float,
+                          gev.REG["FRAME_RATE_MAX"], 10.0)
 
     def test_payload_size_follows_roi(self):
         self.cam.write_reg(gev.REG["WIDTH"], 320)

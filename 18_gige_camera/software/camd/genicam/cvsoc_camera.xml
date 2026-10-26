@@ -2,7 +2,7 @@
 <!--
   cvsoc_camera.xml — GenICam GenApi description of the cvsoc DE10-Nano camera.
 
-  M1: hand-written. From M3 this file is generated from the register map
+  M1/M2: hand-written. From M3 this file is generated from the register map
   (regmap/camera.mm.yml, ADR-004) and checked in. Register addresses must
   match software/camd/camera.h.
 -->
@@ -15,10 +15,10 @@
     SchemaMinorVersion="1"
     SchemaSubMinorVersion="0"
     MajorVersion="0"
-    MinorVersion="1"
+    MinorVersion="2"
     SubMinorVersion="0"
     ProductGuid="8D3F6C1A-2B4E-4F7A-9C11-5E0A7B3D2F01"
-    VersionGuid="1C7E9A42-6D3B-4E85-A0F2-9B4C8D6E1A01"
+    VersionGuid="1C7E9A42-6D3B-4E85-A0F2-9B4C8D6E1A02"
     xmlns="http://www.genicam.org/GenApi/Version_1_1"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.genicam.org/GenApi/Version_1_1 http://www.genicam.org/GenApi/GenApiSchema_Version_1_1.xsd">
@@ -244,7 +244,7 @@
   </IntReg>
 
   <Enumeration Name="TestPattern" NameSpace="Standard">
-    <ToolTip>Test image. Off shows the sensor image (black until the sensor is supported).</ToolTip>
+    <ToolTip>Test image. Off shows the sensor image.</ToolTip>
     <EnumEntry Name="Off" NameSpace="Standard">
       <Value>0</Value>
     </EnumEntry>
@@ -272,6 +272,8 @@
     <pFeature>AcquisitionStart</pFeature>
     <pFeature>AcquisitionStop</pFeature>
     <pFeature>AcquisitionFrameRate</pFeature>
+    <pFeature>CaptureOverflows</pFeature>
+    <pFeature>CaptureBadFrames</pFeature>
   </Category>
 
   <Enumeration Name="AcquisitionMode" NameSpace="Standard">
@@ -321,9 +323,41 @@
   <Float Name="AcquisitionFrameRate" NameSpace="Standard">
     <pValue>AcquisitionFrameRateReg</pValue>
     <Min>1.0</Min>
-    <Max>60.0</Max>
+    <pMax>AcquisitionFrameRateMaxReg</pMax>
     <Unit>Hz</Unit>
   </Float>
+
+  <!-- The sensor's limit depends on the ROI; camd computes it. -->
+  <FloatReg Name="AcquisitionFrameRateMaxReg">
+    <Address>0x1003C</Address>
+    <Length>4</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+    <Cachable>NoCache</Cachable>
+    <Endianess>BigEndian</Endianess>
+  </FloatReg>
+
+  <IntReg Name="CaptureOverflows" NameSpace="Custom">
+    <ToolTip>Sensor frames that lost data in the FPGA capture FIFO since start (diagnostics).</ToolTip>
+    <Address>0x10040</Address>
+    <Length>4</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+    <Cachable>NoCache</Cachable>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
+
+  <IntReg Name="CaptureBadFrames" NameSpace="Custom">
+    <ToolTip>Sensor frames dropped because their size did not match the ROI, e.g. while the sensor reconfigures (diagnostics).</ToolTip>
+    <Address>0x10044</Address>
+    <Length>4</Length>
+    <AccessMode>RO</AccessMode>
+    <pPort>Device</pPort>
+    <Cachable>NoCache</Cachable>
+    <Sign>Unsigned</Sign>
+    <Endianess>BigEndian</Endianess>
+  </IntReg>
 
   <FloatReg Name="AcquisitionFrameRateReg">
     <Address>0x1002C</Address>

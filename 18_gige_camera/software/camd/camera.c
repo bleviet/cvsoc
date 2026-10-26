@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "camera.h"
+#include "source.h"
 #include "util.h"
 
 static uint32_t bs_get(const struct camera *c, uint32_t addr)
@@ -116,6 +117,31 @@ void cam_set_network(struct camera *c, const uint8_t mac[6], struct in_addr ip,
     pthread_mutex_unlock(&c->lock);
 }
 
+void cam_attach_source(struct camera *c, struct frame_source *src)
+{
+    pthread_mutex_lock(&c->lock);
+    c->src = src;
+    if (src->has_sensor)
+        c->img.test_pattern = TEST_PATTERN_OFF;
+    pthread_mutex_unlock(&c->lock);
+}
+
+static float frame_rate_max(const struct camera *c, const struct image_cfg *img)
+{
+    if (c->src && c->src->max_frame_rate)
+        return c->src->max_frame_rate(c->src, img);
+    return FRAME_RATE_MAX;
+}
+
+/* After an ROI or source change: keep AcquisitionFrameRate within its Max. */
+static void clamp_frame_rate(struct camera *c)
+{
+    float max = frame_rate_max(c, &c->img);
+
+    if (c->img.frame_rate > max)
+        c->img.frame_rate = max;
+}
+
 /* Stop streaming and give up control: on release and on heartbeat expiry. */
 static void release_control(struct camera *c)
 {
@@ -130,6 +156,8 @@ static void release_control(struct camera *c)
 
 static uint16_t read_word(const struct camera *c, uint32_t addr, uint32_t *v)
 {
+    uint32_t overflows = 0, bad = 0;
+
     if (addr < BS_SIZE) {
         *v = bs_get(c, addr);
         return GEV_STATUS_SUCCESS;
@@ -160,6 +188,13 @@ static uint16_t read_word(const struct camera *c, uint32_t addr, uint32_t *v)
     case REG_TEST_PATTERN:     *v = c->img.test_pattern; break;
     case REG_TL_PARAMS_LOCKED: *v = c->tl_locked; break;
     case REG_FRAMES_SENT:      *v = c->frames_sent; break;
+    case REG_FRAME_RATE_MAX:   *v = float_bits(frame_rate_max(c, &c->img)); break;
+    case REG_CAPTURE_OVERFLOWS:
+    case REG_CAPTURE_BAD_FRAMES:
+        if (c->src && c->src->counters)
+            c->src->counters(c->src, &overflows, &bad);
+        *v = addr == REG_CAPTURE_OVERFLOWS ? overflows : bad;
+        break;
     default:                   return GEV_STATUS_INVALID_ADDRESS;
     }
     return GEV_STATUS_SUCCESS;
@@ -229,6 +264,7 @@ static uint16_t write_image_reg(struct camera *c, uint32_t addr, uint32_t v)
         img->pixel_format = v;
         break;
     }
+    clamp_frame_rate(c);
     return GEV_STATUS_SUCCESS;
 }
 
@@ -317,7 +353,7 @@ static uint16_t write_reg_locked(struct camera *c, uint32_t addr, uint32_t v)
     case REG_FRAME_RATE: {
         float f = bits_float(v);
 
-        if (!isfinite(f) || f < FRAME_RATE_MIN || f > FRAME_RATE_MAX)
+        if (!isfinite(f) || f < FRAME_RATE_MIN || f > frame_rate_max(c, &c->img))
             return GEV_STATUS_INVALID_PARAMETER;
         c->img.frame_rate = f;
         return GEV_STATUS_SUCCESS;
@@ -326,6 +362,7 @@ static uint16_t write_reg_locked(struct camera *c, uint32_t addr, uint32_t v)
         if (v > TEST_PATTERN_COLOR_BAR)
             return GEV_STATUS_INVALID_PARAMETER;
         c->img.test_pattern = v;
+        clamp_frame_rate(c);
         return GEV_STATUS_SUCCESS;
     case REG_TL_PARAMS_LOCKED:
         if (v > 1)
@@ -336,6 +373,9 @@ static uint16_t write_reg_locked(struct camera *c, uint32_t addr, uint32_t v)
     case REG_HEIGHT_MAX:
     case REG_PAYLOAD_SIZE:
     case REG_FRAMES_SENT:
+    case REG_FRAME_RATE_MAX:
+    case REG_CAPTURE_OVERFLOWS:
+    case REG_CAPTURE_BAD_FRAMES:
         return GEV_STATUS_WRITE_PROTECT;
     }
 
