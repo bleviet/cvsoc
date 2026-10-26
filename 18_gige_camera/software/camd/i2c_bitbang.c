@@ -158,3 +158,38 @@ int i2c_read16(struct i2c_bus *b, uint8_t addr7, uint8_t reg, uint16_t *value)
     stop(b);
     return rc;
 }
+
+int i2c_write8(struct i2c_bus *b, uint8_t addr7, uint8_t reg, uint8_t value)
+{
+    int rc;
+
+    start(b);
+    rc = write_byte(b, (uint8_t)(addr7 << 1));
+    if (rc == 0)
+        rc = write_byte(b, reg);
+    if (rc == 0)
+        rc = write_byte(b, value);
+    stop(b);
+    return rc;
+}
+
+int i2c_read8(struct i2c_bus *b, uint8_t addr7, uint8_t reg, uint8_t *value)
+{
+    int rc;
+
+    start(b);
+    rc = write_byte(b, (uint8_t)(addr7 << 1));
+    if (rc == 0)
+        rc = write_byte(b, reg);
+    if (rc == 0) {
+        set(b, 0, 1);
+        delay(b);
+        scl_high(b, 1);
+        start(b);
+        rc = write_byte(b, (uint8_t)(addr7 << 1 | 1));
+    }
+    if (rc == 0)
+        *value = read_byte(b, 0);
+    stop(b);
+    return rc;
+}

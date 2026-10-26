@@ -10,6 +10,7 @@
 #   - d5m: conduit to the TRDB-D5M pins, exported to the top level. PIXCLK is
 #          a plain conduit signal: it clocks only logic inside this component,
 #          and quartus/de10_nano.sdc constrains it.
+#   - frame: conduit with the last completed frame, to hdmi_preview
 
 package require -exact qsys 12.0
 
@@ -97,3 +98,11 @@ add_interface_port   d5m d5m_scl_oe  scl_oe  Output 1
 add_interface_port   d5m d5m_sda_oe  sda_oe  Output 1
 add_interface_port   d5m d5m_scl_in  scl_in  Input  1
 add_interface_port   d5m d5m_sda_in  sda_in  Input  1
+
+# ── Conduit: last completed frame, to hdmi_preview ────────────────────────────
+add_interface        frame conduit end
+set_interface_property frame ENABLED true
+add_interface_port   frame frame_addr   addr   Output 32
+add_interface_port   frame frame_width  width  Output 16
+add_interface_port   frame frame_height height Output 16
+add_interface_port   frame frame_valid  valid  Output 1

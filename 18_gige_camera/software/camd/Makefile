@@ -9,9 +9,9 @@ CFLAGS  ?= -O2 -Wall -Wextra -std=c99
 LDFLAGS ?=
 OUT     ?= build/host
 
-SRCS = camd.c camera.c gvcp.c gvsp.c i2c_bitbang.c mt9p001.c source_fpga.c \
-       source_sim.c xml_blob.c
-HDRS = camera.h gev.h gvcp.h gvsp.h i2c_bitbang.h mt9p001.h source.h util.h
+SRCS = adv7513.c camd.c camera.c gvcp.c gvsp.c i2c_bitbang.c mt9p001.c \
+       source_fpga.c source_sim.c xml_blob.c
+HDRS = adv7513.h camera.h gev.h gvcp.h gvsp.h i2c_bitbang.h mt9p001.h source.h util.h
 XML  = genicam/cvsoc_camera.xml
 
 .PHONY: all check clean

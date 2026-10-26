@@ -12,6 +12,10 @@
  * MT9P001 over I2C, bit-banged through the writer's I2C register (ADR-009):
  * window = ROI, blanking = AcquisitionFrameRate, shutter = the fixed
  * exposure from the command line. PIXCLK is XCLKIN = 25 MHz (sensor PLL off).
+ *
+ * HDMI (hdl/hdmi_preview.vhd) shows the writer's latest frame 1:1, centered.
+ * While no client streams, camd keeps the writer running as a preview, so
+ * the monitor shows a live image for aiming and focusing.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -24,6 +28,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "adv7513.h"
 #include "mt9p001.h"
 #include "source.h"
 #include "util.h"
@@ -50,6 +55,17 @@ enum {
     CSR_CAP_BITS, CSR_CAP_FLAGS, CSR_CAP_OVERFLOWS, CSR_FRAME_PERIOD, CSR_BAD_FRAMES,
 };
 
+/* hdmi_preview CSRs (word offsets from the LW bridge base, at 0x100) */
+#define HDMI_BASE       0x40u
+enum {
+    HDMI_ID = HDMI_BASE, HDMI_CTRL, HDMI_STATUS, HDMI_SRC_X, HDMI_SRC_Y,
+    HDMI_FRAMES, HDMI_UNDERFLOWS, HDMI_I2C,
+};
+#define HDMI_ID_VALUE   0x48444D31u      /* "HDM1" */
+#define HDMI_SHOW       (1u << 0)
+#define HDMI_WIDTH      1280
+#define HDMI_HEIGHT     720
+
 #define SENSOR_RESET_N  (1u << 0)
 #define SENSOR_XCLK     (1u << 1)
 #define SENSOR_TRIGGER  (1u << 2)
@@ -73,6 +89,11 @@ struct fpga {
     uint32_t  hb_min;
     struct sensor_opts opts;
     uint32_t  overflows0, bad0;         /* counters when camd started */
+
+    /* HDMI */
+    int       hdmi;                     /* hdmi_preview present */
+    int       hdmi_hpd;                 /* last hot-plug state logged */
+    struct i2c_bus hdmi_i2c;
 };
 
 static void *map_phys(uint32_t addr, size_t len)
@@ -179,19 +200,29 @@ fail:
 
 /* ── Sensor ──────────────────────────────────────────────────────────────── */
 
+/* Both I2C registers (sensor and ADV7513) share one layout; ctx points at
+ * the register. */
 static void i2c_drive(void *ctx, int scl_low, int sda_low)
 {
-    volatile uint32_t *csr = ctx;
+    volatile uint32_t *reg = ctx;
 
-    csr[CSR_I2C] = (uint32_t)((scl_low ? 1 : 0) | (sda_low ? 2 : 0));
+    *reg = (uint32_t)((scl_low ? 1 : 0) | (sda_low ? 2 : 0));
 }
 
 static int i2c_sense(void *ctx)
 {
-    volatile uint32_t *csr = ctx;
-    uint32_t v = csr[CSR_I2C];
+    volatile uint32_t *reg = ctx;
+    uint32_t v = *reg;
 
     return (int)((v >> 8) & 1) | (int)((v >> 9) & 1) << 1;
+}
+
+static struct i2c_bus i2c_on(volatile uint32_t *reg)
+{
+    return (struct i2c_bus){
+        .ctx = (void *)reg, .drive = i2c_drive, .sense = i2c_sense,
+        .half_period_ns = 5000,
+    };
 }
 
 /* Wait for `n` more sensor frames; returns 0, or -1 after `timeout_ms`. */
@@ -210,10 +241,7 @@ static int wait_cap_frames(volatile uint32_t *csr, uint32_t n, long timeout_ms)
 /* Clock the sensor, pulse RESETn, and look for it on I2C. */
 static int sensor_power_up(volatile uint32_t *csr, struct i2c_bus *bus, uint16_t *version)
 {
-    *bus = (struct i2c_bus){
-        .ctx = (void *)csr, .drive = i2c_drive, .sense = i2c_sense,
-        .half_period_ns = 5000,
-    };
+    *bus = i2c_on(&csr[CSR_I2C]);
     csr[CSR_I2C] = 0;
     csr[CSR_SENSOR_CTRL] = SENSOR_XCLK;               /* in reset, clocked */
     sleep_ms(10);
@@ -319,6 +347,11 @@ static int start_writer(struct fpga *f, const struct image_cfg *img)
     f->csr[CSR_BUF_BASE] = f->fb_base;
     f->csr[CSR_BUF_STRIDE] = f->stride;
     f->csr[CSR_BUF_COUNT] = f->nbufs;
+    if (f->hdmi) {
+        /* 1:1 window centered on the frame (negative: black borders). */
+        f->csr[HDMI_SRC_X] = (uint32_t)(((int32_t)img->width - HDMI_WIDTH) / 2);
+        f->csr[HDMI_SRC_Y] = (uint32_t)(((int32_t)img->height - HDMI_HEIGHT) / 2);
+    }
     f->csr[CSR_CTRL] = 1;
     f->applied = *img;
     f->running = 1;
@@ -361,12 +394,29 @@ static const uint8_t *fpga_next(struct frame_source *src, const struct image_cfg
     return f->fb + (size_t)((status >> 8) & 0xF) * f->stride;
 }
 
-static void fpga_idle(struct frame_source *src)
+/* No client is streaming: keep frames coming for the HDMI preview. */
+static void fpga_preview(struct frame_source *src, const struct image_cfg *img)
 {
     struct fpga *f = src->priv;
 
-    if (f->running)
-        stop_writer(f);
+    if (!f->running || !same_cfg(&f->applied, img))
+        start_writer(f, img);
+}
+
+static void fpga_poll(struct frame_source *src)
+{
+    struct fpga *f = src->priv;
+    int hpd = 0, rc;
+
+    if (!f->hdmi)
+        return;
+    rc = adv7513_poll(&f->hdmi_i2c, &hpd);
+    if (rc >= 0 && hpd != f->hdmi_hpd)
+        fprintf(stderr, "camd: HDMI monitor %s\n", hpd ? "connected" : "disconnected");
+    if (rc == 1)
+        fprintf(stderr, "camd: ADV7513 configured\n");
+    if (rc >= 0)
+        f->hdmi_hpd = hpd;
 }
 
 static float fpga_max_frame_rate(struct frame_source *src, const struct image_cfg *img)
@@ -395,6 +445,8 @@ static void fpga_close(struct frame_source *src)
 
     stop_writer(f);
     f->csr[CSR_SENSOR_CTRL] = 0;                      /* sensor in reset, unclocked */
+    if (f->hdmi)
+        f->csr[HDMI_CTRL] = 0;
     munmap(f->fb, f->fb_size);
     munmap((void *)f->csr, 4096);
     free(f);
@@ -454,8 +506,21 @@ struct frame_source *source_fpga_open(uint32_t sensor_width, uint32_t sensor_hei
     f->overflows0 = f->csr[CSR_CAP_OVERFLOWS];
     f->bad0 = f->csr[CSR_BAD_FRAMES];
 
+    if (f->csr[HDMI_ID] == HDMI_ID_VALUE) {
+        f->hdmi = 1;
+        f->hdmi_i2c = i2c_on(&f->csr[HDMI_I2C]);
+        f->csr[HDMI_I2C] = 0;
+        i2c_recover(&f->hdmi_i2c);
+        f->csr[HDMI_CTRL] = HDMI_SHOW | (uint32_t)opts->hdmi_mode;
+        if (adv7513_init(&f->hdmi_i2c) < 0)
+            fprintf(stderr, "camd: ADV7513 does not answer on I2C\n");
+        else
+            fprintf(stderr, "camd: HDMI preview 1280x720p60, ADV7513 configured\n");
+    }
+
     *src = (struct frame_source){
-        .name = "fpga", .paced = 0, .next = fpga_next, .idle = fpga_idle,
+        .name = "fpga", .paced = 0, .next = fpga_next, .preview = fpga_preview,
+        .poll = fpga_poll,
         .max_frame_rate = fpga_max_frame_rate, .counters = fpga_counters,
         .close = fpga_close, .has_sensor = f->sensor, .priv = f,
     };
@@ -580,10 +645,7 @@ int source_fpga_sensor_regs(char **specs, int n)
 
     if (!fpga_ready() || !(csr = open_csr(2592)))
         return 2;
-    bus = (struct i2c_bus){
-        .ctx = (void *)csr, .drive = i2c_drive, .sense = i2c_sense,
-        .half_period_ns = 5000,
-    };
+    bus = i2c_on(&csr[CSR_I2C]);
     /* Power the sensor up only if it is held in reset (camd not running). */
     if (!(csr[CSR_SENSOR_CTRL] & SENSOR_RESET_N)) {
         if (sensor_power_up(csr, &bus, &version) < 0) {

@@ -10,6 +10,7 @@ use ieee.numeric_std.all;
 --   - A Lightweight HPS-to-FPGA AXI bridge (camera CSRs at 0xFF200000)
 --   - An FPGA-to-HPS AXI bridge carrying the frame writes into DDR
 --   - cam_frame_writer: D5M capture + test-pattern generator + frame writer
+--   - hdmi_preview: the latest frame on the ADV7513 HDMI transmitter (720p60)
 --
 -- The TRDB-D5M sits on GPIO header JP1 (GPIO_0). Its I2C lines are open
 -- drain: the FPGA only ever pulls them low, and pull-ups (on the D5M, plus
@@ -41,6 +42,16 @@ entity de10_nano_top is
     d5m_trigger  : out   std_logic;
     d5m_sclk     : inout std_logic;
     d5m_sdata    : inout std_logic;
+
+    -- ── ADV7513 HDMI transmitter ──────────────────────────────────────────
+    hdmi_tx_clk  : out   std_logic;
+    hdmi_tx_d    : out   std_logic_vector(23 downto 0);
+    hdmi_tx_de   : out   std_logic;
+    hdmi_tx_hs   : out   std_logic;
+    hdmi_tx_vs   : out   std_logic;
+    hdmi_tx_int  : in    std_logic;
+    hdmi_i2c_scl : inout std_logic;
+    hdmi_i2c_sda : inout std_logic;
 
     -- ── HPS DDR3 SDRAM interface ──────────────────────────────────────────
     hps_ddr3_addr    : out   std_logic_vector(14 downto 0);
@@ -95,13 +106,25 @@ architecture rtl of de10_nano_top is
       d5m_scl_oe         : out   std_logic;
       d5m_sda_oe         : out   std_logic;
       d5m_scl_in         : in    std_logic;
-      d5m_sda_in         : in    std_logic
+      d5m_sda_in         : in    std_logic;
+      hdmi_tx_clk        : out   std_logic;
+      hdmi_tx_d          : out   std_logic_vector(23 downto 0);
+      hdmi_tx_de         : out   std_logic;
+      hdmi_tx_hs         : out   std_logic;
+      hdmi_tx_vs         : out   std_logic;
+      hdmi_tx_int        : in    std_logic;
+      hdmi_scl_oe        : out   std_logic;
+      hdmi_sda_oe        : out   std_logic;
+      hdmi_scl_in        : in    std_logic;
+      hdmi_sda_in        : in    std_logic
     );
   end component hps_system;
 
   signal heartbeat : unsigned(24 downto 0) := (others => '0');
   signal scl_oe    : std_logic;
   signal sda_oe    : std_logic;
+  signal hdmi_scl_oe : std_logic;
+  signal hdmi_sda_oe : std_logic;
 
 begin
 
@@ -117,6 +140,10 @@ begin
   -- Open-drain I2C to the sensor
   d5m_sclk  <= '0' when scl_oe = '1' else 'Z';
   d5m_sdata <= '0' when sda_oe = '1' else 'Z';
+
+  -- Open-drain I2C to the ADV7513
+  hdmi_i2c_scl <= '0' when hdmi_scl_oe = '1' else 'Z';
+  hdmi_i2c_sda <= '0' when hdmi_sda_oe = '1' else 'Z';
 
   hps_system_inst : hps_system
     port map (
@@ -151,7 +178,18 @@ begin
       d5m_scl_oe         => scl_oe,
       d5m_sda_oe         => sda_oe,
       d5m_scl_in         => d5m_sclk,
-      d5m_sda_in         => d5m_sdata
+      d5m_sda_in         => d5m_sdata,
+      -- ADV7513
+      hdmi_tx_clk        => hdmi_tx_clk,
+      hdmi_tx_d          => hdmi_tx_d,
+      hdmi_tx_de         => hdmi_tx_de,
+      hdmi_tx_hs         => hdmi_tx_hs,
+      hdmi_tx_vs         => hdmi_tx_vs,
+      hdmi_tx_int        => hdmi_tx_int,
+      hdmi_scl_oe        => hdmi_scl_oe,
+      hdmi_sda_oe        => hdmi_sda_oe,
+      hdmi_scl_in        => hdmi_i2c_scl,
+      hdmi_sda_in        => hdmi_i2c_sda
     );
 
 end architecture rtl;

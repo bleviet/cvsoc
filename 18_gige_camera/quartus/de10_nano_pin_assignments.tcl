@@ -98,3 +98,31 @@ foreach port {d5m_d[*] d5m_fval d5m_lval} {
 # I2C is open drain; the weak pull-ups back up the pull-ups on the D5M.
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to d5m_sclk
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to d5m_sdata
+
+#============================================================
+# ADV7513 HDMI transmitter (DE10-Nano User Manual and the System CD's
+# HDMI_TX demo). Audio pins (I2S, LRCLK, MCLK, SCLK) are unused.
+#============================================================
+set hdmi_pins {
+  hdmi_tx_clk  AG5
+  hdmi_tx_de   AD19
+  hdmi_tx_hs   T8
+  hdmi_tx_vs   V13
+  hdmi_tx_int  AF11
+  hdmi_i2c_scl U10
+  hdmi_i2c_sda AA4
+}
+set hdmi_d_pins {AD12 AE12 W8 Y8 AD11 AD10 AE11 Y5 AF10 Y4 AE9 AB4
+                 AE7 AF6 AF8 AF5 AE4 AH2 AH4 AH5 AH6 AG6 AF9 AE8}
+for {set i 0} {$i < 24} {incr i} {
+  lappend hdmi_pins "hdmi_tx_d\[$i\]" [lindex $hdmi_d_pins $i]
+}
+foreach {port pin} $hdmi_pins {
+  set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to $port
+  set_location_assignment PIN_$pin -to $port
+}
+
+# The video outputs come straight from registers in the I/O cells.
+foreach port {hdmi_tx_d[*] hdmi_tx_de hdmi_tx_hs hdmi_tx_vs} {
+  set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to $port
+}

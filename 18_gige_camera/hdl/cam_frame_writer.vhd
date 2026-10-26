@@ -27,6 +27,8 @@ use work.cam_pkg.all;
 --      been acknowledged by the HPS interconnect. A burst starts only when all
 --      its data is available, so `write` stays high for every beat.
 --   3. Conduit to the D5M pins (GPIO header JP1).
+--   4. Conduit with the last completed frame (address, size), for
+--      hdmi_preview.
 --
 -- Register map (slave interface, 32-bit words):
 --   Offset  Name            Access  Description
@@ -115,7 +117,13 @@ entity cam_frame_writer is
     d5m_scl_oe    : out   std_logic;      -- 1: pull SCLK low (open drain)
     d5m_sda_oe    : out   std_logic;      -- 1: pull SDATA low (open drain)
     d5m_scl_in    : in    std_logic;
-    d5m_sda_in    : in    std_logic
+    d5m_sda_in    : in    std_logic;
+
+    -- ── Conduit: last completed frame (to hdmi_preview) ───────────────
+    frame_addr    : out   std_logic_vector(31 downto 0);
+    frame_width   : out   std_logic_vector(15 downto 0);
+    frame_height  : out   std_logic_vector(15 downto 0);
+    frame_valid   : out   std_logic
   );
 end entity cam_frame_writer;
 
@@ -183,6 +191,10 @@ architecture rtl of cam_frame_writer is
   signal reg_i2c       : std_logic_vector(1 downto 0) := (others => '0');
 
   signal frame_count   : unsigned(31 downto 0) := (others => '0');
+  signal last_addr     : unsigned(31 downto 0) := (others => '0');
+  signal last_width    : unsigned(15 downto 0) := (others => '0');
+  signal last_height   : unsigned(15 downto 0) := (others => '0');
+  signal have_frame    : std_logic := '0';
   signal last_buf      : unsigned(3 downto 0)  := (others => '0');
   signal resp_error    : std_logic := '0';
   signal frame_cycles  : unsigned(31 downto 0) := (others => '0');
@@ -254,6 +266,11 @@ begin
 
   avm_byteenable <= (others => '1');
   avm_address    <= std_logic_vector(burst_addr);
+
+  frame_addr   <= std_logic_vector(last_addr);
+  frame_width  <= std_logic_vector(last_width);
+  frame_height <= std_logic_vector(last_height);
+  frame_valid  <= have_frame;
 
   -- ── D5M pins ──────────────────────────────────────────────────────────
   d5m_reset_n <= reg_sensor(0);
@@ -534,6 +551,10 @@ begin
       frame_count  <= frame_count + 1;
       last_buf     <= buf_idx;
       frame_cycles <= cycle_cnt;
+      last_addr    <= buf_addr;
+      last_width   <= cfg_words_per_row & "000";
+      last_height  <= cfg_height;
+      have_frame   <= '1';
       if buf_idx + 1 >= reg_buf_count then
         buf_idx  <= (others => '0');
         buf_addr <= reg_buf_base;
@@ -549,6 +570,7 @@ begin
       restart        <= '0';
       frame_count    <= (others => '0');
       last_buf       <= (others => '0');
+      have_frame     <= '0';
       resp_error     <= '0';
       frame_cycles   <= (others => '0');
       buf_idx        <= (others => '0');

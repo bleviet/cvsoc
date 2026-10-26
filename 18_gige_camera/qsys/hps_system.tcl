@@ -10,6 +10,9 @@ package require -exact qsys 12.0
 #     map, so DDR is at its physical address (frame buffers at 0x3C000000)
 #   - cam: cam_frame_writer, D5M capture + test-pattern generator + DDR
 #     frame writer; its d5m conduit is exported to the top level
+#   - hdmi: hdmi_preview, shows cam's latest frame on the ADV7513 (720p60);
+#     reads DDR through the same FPGA-to-HPS bridge
+#   - video_pll: 74.25 MHz pixel clock for hdmi
 #
 # Frames go through the FPGA-to-HPS AXI bridge rather than the FPGA-to-SDRAM
 # ports: the SDRAM ports are configured by the preloader and cannot be safely
@@ -17,6 +20,7 @@ package require -exact qsys 12.0
 #
 # ARM address map (LW bridge window):
 #   0xFF200000  cam_frame_writer  CSRs (see hdl/cam_frame_writer.vhd)
+#   0xFF200100  hdmi_preview      CSRs (see hdl/hdmi_preview.vhd)
 # ---------------------------------------------------------------------------
 
 create_system hps_system
@@ -101,21 +105,44 @@ set_instance_parameter_value clk_0 resetSynchronousEdges {NONE}
 add_instance cam cam_frame_writer
 set_instance_parameter_value cam SENSOR_WIDTH {2592}
 
+# ── HDMI preview and its pixel clock ──────────────────────────────────────
+# 720p60 needs 74.25 MHz = 50 MHz x 1.485, so the PLL runs fractional-N.
+add_instance video_pll altera_pll
+set_instance_parameter_value video_pll gui_reference_clock_frequency {50.0}
+set_instance_parameter_value video_pll gui_pll_mode {Fractional-N PLL}
+set_instance_parameter_value video_pll gui_number_of_clocks {1}
+set_instance_parameter_value video_pll gui_output_clock_frequency0 {74.25}
+set_instance_parameter_value video_pll gui_use_locked {false}
+
+add_instance hdmi hdmi_preview
+
 # ── Clock connections ──────────────────────────────────────────────────────
 add_connection clk_0.clk       cam.clk
 add_connection clk_0.clk       hps_0.h2f_lw_axi_clock
 add_connection clk_0.clk       hps_0.f2h_axi_clock
+add_connection clk_0.clk       video_pll.refclk
+add_connection clk_0.clk       hdmi.clk
+add_connection video_pll.outclk0 hdmi.pclk
 
 # ── Reset connections ──────────────────────────────────────────────────────
 add_connection hps_0.h2f_reset cam.reset
+add_connection hps_0.h2f_reset hdmi.reset
+add_connection clk_0.clk_reset video_pll.reset
 
 # ── LW bridge: camera CSRs at 0xFF200000 ───────────────────────────────────
 add_connection hps_0.h2f_lw_axi_master cam.avs
 set_connection_parameter_value hps_0.h2f_lw_axi_master/cam.avs baseAddress {0x00000000}
+add_connection hps_0.h2f_lw_axi_master hdmi.avs
+set_connection_parameter_value hps_0.h2f_lw_axi_master/hdmi.avs baseAddress {0x00000100}
 
 # ── FPGA-to-HPS bridge: frame writes ───────────────────────────────────────
 add_connection cam.avm hps_0.f2h_axi_slave
 set_connection_parameter_value cam.avm/hps_0.f2h_axi_slave baseAddress {0x00000000}
+add_connection hdmi.avm hps_0.f2h_axi_slave
+set_connection_parameter_value hdmi.avm/hps_0.f2h_axi_slave baseAddress {0x00000000}
+
+# ── Last completed frame: writer -> HDMI preview ───────────────────────────
+add_connection cam.frame hdmi.frame
 
 # ── Interface exports ──────────────────────────────────────────────────────
 add_interface clk clock sink
@@ -129,6 +156,9 @@ set_interface_property memory EXPORT_OF hps_0.memory
 
 add_interface d5m conduit end
 set_interface_property d5m EXPORT_OF cam.d5m
+
+add_interface hdmi conduit end
+set_interface_property hdmi EXPORT_OF hdmi.hdmi
 
 save_system hps_system.qsys
 puts "hps_system.qsys saved successfully"

@@ -25,6 +25,12 @@ struct frame_source {
                            uint32_t frame_no);
     /* Optional: acquisition stopped (e.g. stop the hardware writer). */
     void (*idle)(struct frame_source *src);
+    /* Optional, replaces idle: no client streams, keep producing frames with
+     * `img` for a local display (HDMI). Called about every 100 ms. */
+    void (*preview)(struct frame_source *src, const struct image_cfg *img);
+    /* Optional: housekeeping, called about once a second from the main loop
+     * (e.g. reconfigure the HDMI transmitter after a hot-plug). */
+    void (*poll)(struct frame_source *src);
     /* Optional: highest AcquisitionFrameRate `img` allows (default
      * FRAME_RATE_MAX). Cheap and lock-free: called under the camera lock. */
     float (*max_frame_rate)(struct frame_source *src, const struct image_cfg *img);
@@ -40,6 +46,7 @@ struct frame_source {
 struct sensor_opts {
     double exposure_us;
     double gain;
+    unsigned hdmi_mode;                 /* hdmi_preview CTRL bits: 2 grey, 4 bars */
 };
 
 struct frame_source *source_sim_open(uint32_t sensor_width, uint32_t sensor_height);

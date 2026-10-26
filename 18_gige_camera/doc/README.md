@@ -9,8 +9,8 @@ milestones M0–M6, risks) is in
 | Milestone | Status |
 |---|---|
 | **M0: Throughput spike** | Done 2026-10-25: [ADR-001](adr/ADR-001-gvsp-packetization.md) accepted provisionally; end-to-end loss check pending a ≥1 Gbit/s receiver |
-| **M1: Walking skeleton** | GigE path done 2026-10-25: FPGA test pattern → DDR → `camd` → GVSP passes Aravis's `arv-test`. HDMI output deferred (no monitor yet), see [M1](#m1-walking-skeleton) |
-| **M2: Sensor bring-up** | In progress: D5M → FPGA → DDR → `camd` → GVSP works, data lines verified; image quality and Bayer phase wait for light on the sensor, HDMI for a monitor. See [M2](#m2-sensor-bring-up) |
+| **M1: Walking skeleton** | GigE path done 2026-10-25: FPGA test pattern → DDR → `camd` → GVSP passes Aravis's `arv-test`. HDMI output moved to M2, see [M1](#m1-walking-skeleton) |
+| **M2: Sensor bring-up** | In progress: D5M → FPGA → DDR → `camd` → GVSP works, data lines verified; HDMI preview works (720p60). Image quality and Bayer phase wait for light on the sensor. See [M2](#m2-sensor-bring-up) |
 | M3–M6 | Not started |
 
 Architecture decisions are recorded in [`adr/`](adr/).
@@ -278,8 +278,8 @@ root there.
 
 ### Open (M1)
 
-- **HDMI output** (test pattern → HDMI, ADV7513 bring-up) needs a monitor to
-  verify. It is deferred until one is available.
+- ~~**HDMI output** (test pattern → HDMI, ADV7513 bring-up) needs a monitor to
+  verify.~~ Done in M2, see [HDMI preview](#hdmi-preview).
 - ~~The pixel generator is one combinational path. Pipeline it before raising
   the clock for the sensor in M2.~~ Done in M2: the generator is one
   registered word ahead of the writer (worst setup slack +0.93 → +1.57 ns).
@@ -309,6 +309,7 @@ MT9P001 ──JP1──► d5m_capture ──async_fifo──► cam_frame_write
 | Sensor driver | `software/camd/mt9p001.c`, `i2c_bitbang.c` | Register map and timing model (row time, blanking, shutter) from the datasheet, unit-tested in `make test`; I2C bit-banged through the writer's `I2C` register ([ADR-009](adr/ADR-009-sensor-i2c.md)) |
 | Pin assignments | `quartus/de10_nano_pin_assignments.tcl` | JP1 header pin ↔ D5M signal ↔ FPGA pin, from the TRDB-D5M and DE10-Nano user manuals |
 | Bring-up tools | `camd --sensor-test`, `camd --sensor-reg`, `client/grab.py`, `client/soak.py` | Data-line test, register peek/poke, PNG snapshot, long streaming run |
+| HDMI preview | `hdl/hdmi_preview.vhd`, `software/camd/adv7513.c` | The latest frame on HDMI, 720p60 (see [HDMI preview](#hdmi-preview)) |
 
 New camera features: `AcquisitionFrameRate`'s maximum follows the ROI (the
 sensor at 25 MHz PIXCLK does 3.67 fps at full resolution), and two
@@ -317,7 +318,7 @@ diagnostics counters, `CaptureOverflows` and `CaptureBadFrames`.
 ### Procedure
 
 ```bash
-make sim                                   # 2 x 16 RTL tests incl. a D5M bus model
+make sim                                   # 2 x 16 writer tests incl. a D5M bus model, 7 HDMI tests
 make test                                  # + MT9P001 timing-model unit test
 make fpga && make load-fpga HOST=de10nano
 make sensor-test HOST=de10nano             # all 12 data lines, glitch count
@@ -351,9 +352,9 @@ camd: HBmin 450, full-res max 3.67 fps at 25 MHz PIXCLK
   sensor pacing the frames: continuous acquisition 10/10 at 3.00 Hz and
   2.50 Hz, single acquisition, GigE Vision checks. The FPGA test patterns
   are still byte-exact (`verify_stream.py`).
-- **Soak (`client/soak.py`):** 25 minutes at full resolution and the
+- **Soak (`client/soak.py`):** 35 minutes at full resolution and the
   sensor's maximum rate (3.665 fps, gain 15 for maximum data-line activity):
-  5497 frames complete, 0 incomplete, 0 missing, 0 capture overflows,
+  7696 frames complete, 0 incomplete, 0 missing, 0 capture overflows,
   0 bad frames. The planned hour was cut short; an earlier attempt was
   interrupted by the lab USB NIC dropping its link (R9), which `soak.py` now
   rides out.
@@ -389,12 +390,76 @@ camd: HBmin 450, full-res max 3.67 fps at 25 MHz PIXCLK
   drop the frames the sensor sends while it reconfigures, so a ROI change
   never reaches the client as a torn frame.
 
+### HDMI preview
+
+For aiming and focusing without a PC, the HDMI port shows the camera's
+latest frame at 1280 × 720, 60 Hz:
+
+```text
+cam_frame_writer ──DDR ring──► hdmi_preview ──► ADV7513 ──► monitor
+   (last completed frame)      line fetcher (50 MHz, F2H AXI read)
+                               2-row ping-pong buffers ──► 720p timing (74.25 MHz)
+```
+
+- **1:1 pixels, centered.** A full-resolution frame shows its central
+  1280 × 720 pixels, which is what focusing needs. To look elsewhere, set
+  `Width`/`Height` to 1280 × 720 and move `OffsetX`/`OffsetY` (in Aravis).
+  Smaller frames are centered with black borders.
+- **Color** from each 2x2 GR/BG cell (no interpolation), or the raw values in
+  grey with `camd --hdmi grey` (sharper for focusing), or the FPGA's color
+  bars with `--hdmi bars` (checks the HDMI path alone).
+- **Always live:** while no GigE client streams, camd keeps the sensor
+  running with the current settings, so the monitor shows a live image. A
+  client's ROI and frame rate apply to the preview too.
+- camd configures the ADV7513 over I2C (bit-banged like the sensor's) with
+  the register values of Terasic's HDMI_TX demo, and again whenever a
+  monitor is plugged in.
+- The pixel clock comes from a fractional PLL (exactly 74.25 MHz). The
+  fetcher reads 2 sensor rows per 2 display lines (about 55 MB/s);
+  `hdmi_preview`'s `UNDERFLOWS` register counts row pairs that were late.
+
+#### Controlling the preview over ssh
+
+camd sets the preview up when it starts; afterwards the `hdmi_preview`
+registers (LW bridge 0xFF200100) can be poked directly with `devmem`. camd
+writes `CTRL` again only when it restarts (and clears it when it exits), and
+re-centers `SRC_X`/`SRC_Y` whenever it restarts the writer, e.g. on a ROI change.
+
+| Register | Address | Contents |
+|---|---|---|
+| `ID` | 0xFF200100 | 0x48444D31 ("HDM1") |
+| `CTRL` | 0xFF200104 | bit 0 show (0: black), bit 1 grey, bit 2 color bars |
+| `STATUS` | 0xFF200108 | bit 0: a frame is available |
+| `SRC_X` / `SRC_Y` | 0xFF20010C / 0xFF200110 | top-left frame pixel shown (signed; X a multiple of 8, Y even) |
+| `FRAMES` | 0xFF200114 | display frames sent (counts at 60 Hz) |
+| `UNDERFLOWS` | 0xFF200118 | row pairs fetched too late |
+
+```bash
+# Start camd with a preview mode, exposure and gain (defaults: color, 20000 us, 2.0).
+ssh de10nano 'killall camd; sleep 0.5; nohup /tmp/camd --fpga --hdmi grey \
+    --exposure-us 50000 --gain 4 >/tmp/camd.log 2>&1 &'
+ssh de10nano cat /tmp/camd.log                 # "HDMI monitor connected", "ADV7513 configured"
+
+# Switch the mode without restarting camd.
+ssh de10nano devmem 0xFF200104 32 1           # live, color
+ssh de10nano devmem 0xFF200104 32 3           # live, grey (raw values)
+ssh de10nano devmem 0xFF200104 32 5           # color bars
+ssh de10nano devmem 0xFF200104 32 0           # black
+
+# Pan within a full-resolution frame (camd centers it at 656, 612).
+ssh de10nano 'devmem 0xFF20010C 32 0; devmem 0xFF200110 32 0'   # top-left corner
+
+# Health: FRAMES must grow by about 60 per second, UNDERFLOWS stay 0.
+ssh de10nano 'devmem 0xFF200114 32; sleep 1; devmem 0xFF200114 32; devmem 0xFF200118 32'
+```
+
+`make run-camd HOST=de10nano` restarts camd with the defaults (color).
+
 ### Open (M2)
 
 - **Light:** a frame of a real scene to check the image and confirm the
   Bayer phase (expected GR from the datasheet; `client/grab.py` prints the
   CFA channel means and saves a debayered PNG).
-- **HDMI passthrough:** needs a monitor (as in M1).
 - **Faster PIXCLK:** the sensor PLL can reach ~96 MHz (14 fps full
   resolution). Needs XCLKIN within the PLL's 6–27 MHz input range (25 MHz
   is), the SDC tightened, the capture timing re-checked, and the slew sweep
@@ -411,10 +476,11 @@ camd: HBmin 450, full-res max 3.67 fps at 25 MHz PIXCLK
 │   ├── README.md            # this file
 │   └── adr/                 # architecture decision records
 ├── hdl/                     # cam_frame_writer.vhd, d5m_capture.vhd, async_fifo.vhd,
-│                            # cam_pkg.vhd, de10_nano_top.vhd
-├── qsys/                    # hps_system.tcl, cam_frame_writer_hw.tcl
+│                            # cam_pkg.vhd, hdmi_preview.vhd, de10_nano_top.vhd
+├── qsys/                    # hps_system.tcl, cam_frame_writer_hw.tcl, hdmi_preview_hw.tcl
 ├── quartus/                 # project/pin/timing TCL, Makefile (Quartus flow)
-├── sim/                     # cocotb tests (run.py, test_cam_frame_writer.py)
+├── sim/                     # cocotb tests (run.py, test_cam_frame_writer.py,
+│                            # test_hdmi_preview.py)
 ├── software/
 │   ├── camd/                # GigE Vision camera daemon + GenICam XML
 │   └── spike/               # M0: gvsp_blast.c, gvsp_sink.c, eth_pause.c

@@ -1,6 +1,6 @@
 # Timing constraints for the 18_gige_camera project.
 #
-# FPGA_CLK1_50 drives the fabric logic: cam_frame_writer, the LW H2F bridge
+# FPGA_CLK1_50 drives the fabric logic: cam_frame_writer, hdmi_preview, the LW H2F bridge
 # and the FPGA-to-HPS AXI bridge. The D5M's PIXCLK drives d5m_capture and the
 # write side of its async_fifo.
 #
@@ -44,3 +44,16 @@ set_input_delay -clock {D5M_PIXCLK} -clock_fall -min 0.000 \
 # bit-banged I2C lines.
 set_false_path -to   [get_ports {d5m_xclkin d5m_reset_n d5m_trigger d5m_sclk d5m_sdata}]
 set_false_path -from [get_ports {d5m_strobe d5m_sclk d5m_sdata}]
+
+# HDMI pixel clock (74.25 MHz from video_pll). hdmi_preview only crosses
+# between it and the fabric clock through synchronized toggles, quasi-static
+# settings and its dual-clock line buffers.
+set_clock_groups -asynchronous -group [get_clocks {*video_pll*}]
+
+# The ADV7513 samples data, DE and syncs with HDMI_TX_CLK, which is the same
+# clock leaving the FPGA; the outputs come from I/O-cell registers and the
+# ADV7513's input clock delay (register 0xBA) adjusts the sampling point, as
+# in Terasic's HDMI_TX demo. No timing relationship is analyzed here.
+set_false_path -to [get_ports {hdmi_tx_d[*] hdmi_tx_de hdmi_tx_hs hdmi_tx_vs hdmi_tx_clk}]
+set_false_path -to   [get_ports {hdmi_i2c_scl hdmi_i2c_sda}]
+set_false_path -from [get_ports {hdmi_i2c_scl hdmi_i2c_sda hdmi_tx_int}]

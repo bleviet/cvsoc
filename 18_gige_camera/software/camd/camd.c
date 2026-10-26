@@ -57,6 +57,7 @@ static void usage(const char *argv0)
             "  --fb-size N  frame-buffer region size (default 0x4000000)\n"
             "  --exposure-us N  sensor exposure (default 20000)\n"
             "  --gain G     sensor analog gain, 1.0 to 15.75 (default 2.0)\n"
+            "  --hdmi MODE  HDMI preview: color (default), grey or bars\n"
             "  -p PORT      GVCP port (default %d)\n"
             "  -W PIXELS    sensor width (default 2592)\n"
             "  -H PIXELS    sensor height (default 1944)\n"
@@ -75,6 +76,7 @@ int main(int argc, char **argv)
         { "fb-size", required_argument, NULL, 'z' },
         { "exposure-us", required_argument, NULL, 'e' },
         { "gain", required_argument, NULL, 'g' },
+        { "hdmi", required_argument, NULL, 'D' },
         { "sensor-test", no_argument, NULL, 'T' },
         { "sensor-reg", required_argument, NULL, 'R' },
         { "help", no_argument, NULL, 'h' },
@@ -98,6 +100,7 @@ int main(int argc, char **argv)
     char *regs[64];
     int nregs = 0;
     int port = GVCP_PORT, sim = 0, fpga = 0, verbose = 0, fd, c;
+    uint64_t next_poll = 0;
 
     while ((c = getopt_long(argc, argv, "p:W:H:P:s:vh", longopts, NULL)) != -1) {
         switch (c) {
@@ -107,6 +110,18 @@ int main(int argc, char **argv)
         case 'z': fb_size = (uint32_t)strtoul(optarg, NULL, 0); break;
         case 'e': sensor.exposure_us = atof(optarg); break;
         case 'g': sensor.gain = atof(optarg); break;
+        case 'D':
+            if (!strcmp(optarg, "grey"))
+                sensor.hdmi_mode = 2;
+            else if (!strcmp(optarg, "bars"))
+                sensor.hdmi_mode = 4;
+            else if (!strcmp(optarg, "color"))
+                sensor.hdmi_mode = 0;
+            else {
+                usage(argv[0]);
+                return 2;
+            }
+            break;
         case 'T': return source_fpga_sensor_test();
         case 'R':
             if (nregs < 64)
@@ -163,6 +178,12 @@ int main(int argc, char **argv)
 
     while (!g_stop) {
         struct pollfd pfd = { .fd = fd, .events = POLLIN };
+        uint64_t now = now_ns();
+
+        if (src->poll && now >= next_poll) {
+            src->poll(src);
+            next_poll = now + 1000000000ull;
+        }
 
         if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
             uint8_t buf[GVCP_MAX_PACKET];

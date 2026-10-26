@@ -162,7 +162,11 @@ static void *stream_thread(void *arg)
         if (!acquiring || st.dest.sin_port == 0 || st.dest.sin_addr.s_addr == 0) {
             struct timespec until;
 
-            if (was_acquiring && s->src->idle) {
+            if (s->src->preview) {
+                pthread_mutex_unlock(&c->lock);
+                s->src->preview(s->src, &img);
+                pthread_mutex_lock(&c->lock);
+            } else if (was_acquiring && s->src->idle) {
                 pthread_mutex_unlock(&c->lock);
                 s->src->idle(s->src);
                 pthread_mutex_lock(&c->lock);
